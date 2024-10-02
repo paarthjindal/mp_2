@@ -6,6 +6,9 @@
 #include "spinlock.h"
 #include "proc.h"
 
+#include "syscall.h"
+
+extern int syscall_count[];
 uint64
 sys_exit(void)
 {
@@ -107,4 +110,26 @@ sys_waitx(void)
   if (copyout(p->pagetable, addr2, (char *)&rtime, sizeof(int)) < 0)
     return -1;
   return ret;
+}
+
+uint64
+sys_getSysCount(void) {
+    int mask;
+    argint(0, &mask);  // Correct usage of argint
+    
+    int syscall_number = -1;
+
+    // Identify the syscall based on the mask (1 << i format)
+    for (int i = 0; i < 31; i++) {
+        if (mask == (1 << i)) {
+            syscall_number = i;
+            break;
+        }
+    }
+    if (syscall_number == -1)
+        return -1;
+
+    // Count the number of times this syscall has been invoked
+    int count = syscall_count[syscall_number];
+    return count;
 }

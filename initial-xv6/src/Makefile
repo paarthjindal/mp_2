@@ -106,6 +106,11 @@ $U/_forktest: $U/forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
+$U/_syscount: $U/syscount.o $(ULIB)
+    $(LD) $(LDFLAGS) -T $U/user.ld -o $U/_syscount $U/syscount.o $(ULIB)
+    $(OBJDUMP) -S $U/_syscount > $U/syscount.asm
+    $(OBJDUMP) -t $U/_syscount | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/syscount.sym
+
 mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
 
@@ -133,6 +138,7 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_schedulertest\
+    $U/_syscount\  # Add syscount here
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
