@@ -101,7 +101,7 @@ int allocpid()
 }
 
 // Look in the process table for an UNUSED proc.
-// If found, initialize state required to run in the kernel,
+// If found, initialize state required to run in the kernel,sy
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 static struct proc *
@@ -109,50 +109,58 @@ allocproc(void)
 {
   struct proc *p;
 
+  // Search for an UNUSED process slot
   for (p = proc; p < &proc[NPROC]; p++)
   {
     acquire(&p->lock);
     if (p->state == UNUSED)
     {
-      goto found;
+      goto found;  // Found an UNUSED process
     }
     else
     {
-      release(&p->lock);
+      release(&p->lock);  // Release lock if not UNUSED
     }
   }
-  return 0;
+  return 0;  // No UNUSED process found, return 0
 
 found:
-  p->pid = allocpid();
-  p->state = USED;
+  p->pid = allocpid();  // Assign PID
+  p->state = USED;      // Mark process as USED
 
-  // Allocate a trapframe page.
+  // Initialize syscall_count array after process is allocated
+  for (int i = 0; i < 31; i++)
+  {
+    p->syscall_count[i] = 0;
+  }
+
+  // Allocate a trapframe page
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
   {
-    freeproc(p);
-    release(&p->lock);
+    freeproc(p);      // Clean up if allocation fails
+    release(&p->lock);  // Release lock
     return 0;
   }
 
-  // An empty user page table.
+  // Allocate user page table
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0)
   {
-    freeproc(p);
-    release(&p->lock);
+    freeproc(p);      // Clean up if allocation fails
+    release(&p->lock);  // Release lock
     return 0;
   }
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
+  // Set up the new context to start executing at forkret
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-  p->rtime = 0;
-  p->etime = 0;
-  p->ctime = ticks;
-  return p;
+  
+  p->rtime = 0;       // Initialize runtime
+  p->etime = 0;       // Initialize exit time
+  p->ctime = ticks;   // Record creation time
+
+  return p;  // Return the newly allocated process
 }
 
 // free a proc structure and the data hanging from it,
@@ -421,6 +429,11 @@ int wait(uint64 addr)
         havekids = 1;
         if (pp->state == ZOMBIE)
         {
+
+          for(int i=0;i<31;i++){
+            p->syscall_count[i]=pp->syscall_count[i];
+          }
+
           // Found one.
           pid = pp->pid;
           if (addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,

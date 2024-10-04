@@ -31,57 +31,50 @@ void trapinithart(void)
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
 //
+// trap.c
 void usertrap(void)
 {
   int which_dev = 0;
+  struct proc *p = myproc();
 
   if ((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  // send interrupts and exceptions to kerneltrap(),
-  // since we're now in the kernel.
-  w_stvec((uint64)kernelvec);
-
-  struct proc *p = myproc();
-
-  // save user program counter.
+  // Send interrupts and exceptions to kerneltrap().
   p->trapframe->epc = r_sepc();
 
-  if (r_scause() == 8)
+  if ((which_dev = devintr()) == 0)
   {
-    // system call
-
-    if (killed(p))
-      exit(-1);
-
-    // sepc points to the ecall instruction,
-    // but we want to return to the next instruction.
-    p->trapframe->epc += 4;
-
-    // an interrupt will change sepc, scause, and sstatus,
-    // so enable only now that we're done with those registers.
-    intr_on();
-
-    syscall();
-  }
-  else if ((which_dev = devintr()) != 0)
-  {
-    // ok
-  }
-  else
-  {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("unexpected scause %p\n", r_scause());
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    setkilled(p);
+    p->killed = 1;
   }
 
-  if (killed(p))
+  // Handle timer interrupt for sigalarm
+  if (which_dev == 2)
+  {                 // 2 is the timer interrupt
+    p->tickcount++; // Increment tick count
+
+    if (p->alarmticks > 0 && p->tickcount >= p->alarmticks && !p->in_handler)
+    {
+      // Save the current state to restore later
+      p->alarm_trapframe = kalloc(); // Allocate space for saving trapframe
+      if (p->alarm_trapframe != 0)
+      {
+        *p->alarm_trapframe = *p->trapframe; // Save trapframe
+
+        // Set up trapframe to jump to the handler function
+        p->trapframe->epc = p->handler; // Set the handler address in epc
+        p->in_handler = 1;              // Mark that we are in the handler
+        p->tickcount = 0;               // Reset the tick counter
+      }
+    }
+  }
+
+  if (p->killed)
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
-    yield();
-
+  // Return to user space.
   usertrapret();
 }
 

@@ -119,6 +119,18 @@ struct proc
   uint rtime;                  // How long the process ran for
   uint ctime;                  // When was the process created
   uint etime;                  // When did the process exited
+
+   // Add this array to track system call counts per process
+  int syscall_count[31]; // Track system call counts (for 31 syscalls)
+
+  // for part b
+  int alarmticks;         // Number of ticks before alarm is triggered
+  int tickcount;          // CPU ticks consumed since the last alarm
+  uint64 handler;         // Address of the alarm handler function
+  int in_handler;         // Flag to indicate if currently in a handler
+
+  // To store the state of the process before the handler is called
+  struct trapframe *alarm_trapframe;
 };
 
 extern struct proc proc[NPROC];

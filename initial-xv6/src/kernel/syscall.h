@@ -1,3 +1,6 @@
+#ifndef SYSCALL_H
+#define SYSCALL_H
+
 // System call numbers
 #define SYS_fork    1
 #define SYS_exit    2
@@ -22,3 +25,12 @@
 #define SYS_close  21
 #define SYS_waitx  22
 #define SYS_getSysCount 23  
+#define SYS_sigalarm 24
+#define SYS_sigreturn 25
+
+
+
+
+
+
+#endif // SYSCALL_H

@@ -113,23 +113,66 @@ sys_waitx(void)
 }
 
 uint64
-sys_getSysCount(void) {
-    int mask;
-    argint(0, &mask);  // Correct usage of argint
-    
-    int syscall_number = -1;
+sys_getSysCount(void)
+{
+  int mask;
+  struct proc *p = myproc(); // Get the current process
+  // for (int i = 0; i < 31; i++)
+  // {
+  //   printf("%d %d\n",i, p->syscall_count[i]);
+  // }
+  
 
-    // Identify the syscall based on the mask (1 << i format)
-    for (int i = 0; i < 31; i++) {
-        if (mask == (1 << i)) {
-            syscall_number = i;
-            break;
-        }
+  argint(0, &mask);
+  // printf("the mask is %d",mask);
+
+  int count = 0;
+
+  // Check the mask to determine which syscall to count
+  for (int i = 0; i < 31; i++)
+  {
+    if (mask & (1 << i))
+    {
+      count += p->syscall_count[i-1]; // Add up the syscall counts
     }
-    if (syscall_number == -1)
-        return -1;
+  }
 
-    // Count the number of times this syscall has been invoked
-    int count = syscall_count[syscall_number];
-    return count;
+  return count;
+}
+
+// sysproc.c
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+
+  argint(0, &interval);
+    
+  argaddr(1, &handler);
+    
+
+  struct proc *p = myproc();
+  p->alarmticks = interval;
+  p->handler = handler;
+  // p->tickcount = 0;
+  // p->in_handler = 0;
+
+  return 0;
+}
+
+// sysproc.c
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+
+  if (p->alarm_trapframe != 0) {
+    *p->trapframe = *p->alarm_trapframe;  // Restore the saved trapframe
+    kfree(p->alarm_trapframe);            // Free the allocated memory
+    p->alarm_trapframe = 0;               // Clear the saved trapframe pointer
+    p->in_handler = 0;                    // Mark that we are out of the handler
+  }
+
+  return 0;
 }
