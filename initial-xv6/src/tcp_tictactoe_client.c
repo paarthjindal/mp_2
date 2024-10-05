@@ -50,24 +50,53 @@ int main()
             printf("%s", buffer);
             fflush(stdout); // Make sure the output is printed immediately
 
-            // If the server requests input
+            // If the server requests the player's move
             if (strstr(buffer, "Your move"))
             {
                 // Get the user input for row and column
                 printf("Enter row and column: ");
                 fgets(buffer, sizeof(buffer), stdin);
-                // Strip the newline character, if present
                 buffer[strcspn(buffer, "\n")] = '\0'; // Remove the newline character
 
-                // Send input to the server
+                // Send the input to the server
                 send(sock, buffer, strlen(buffer), 0);
             }
 
-            // If the game is over, break the loop
-            if (strstr(buffer, "wins") || strstr(buffer, "draw"))
+            // If the server asks if the player wants to play again
+            else if (strstr(buffer, "Do you want to play again?"))
             {
-                break;
+                // Get the user's response (y/n)
+                printf("Enter your response (y/n): ");
+                fgets(buffer, sizeof(buffer), stdin);
+                buffer[strcspn(buffer, "\n")] = '\0'; // Remove the newline character
+
+                // Send the response to the server
+                send(sock, buffer, strlen(buffer), 0);
+
+                // If the player says no, exit the loop
+                if (buffer[0] == 'n' || buffer[0] == 'N')
+                {
+                    printf("You chose not to play again. Closing connection.\n");
+                    break;
+                }
             }
+
+            // If the game is over (win/draw), but no play-again prompt yet
+            else if (strstr(buffer, "wins") || strstr(buffer, "draw"))
+            {
+                printf("Game over.\n");
+                // Continue to wait for play again prompt instead of breaking immediately
+            }
+        }
+        else if (valread == 0)
+        {
+            printf("Server closed the connection.\n");
+            break;
+        }
+        else
+        {
+            perror("recv error");
+            break;
         }
     }
 
