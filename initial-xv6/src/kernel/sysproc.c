@@ -153,10 +153,10 @@ sys_sigalarm(void)
     
 
   struct proc *p = myproc();
-  p->alarmticks = interval;
-  p->handler = handler;
-  // p->tickcount = 0;
-  // p->in_handler = 0;
+  p->alarm_interval = interval;
+  p->alarm_handler = (void(*)())handler;
+  p->ticks_count = 0;
+  p->alarm_on = (interval > 0);
 
   return 0;
 }
@@ -167,12 +167,12 @@ sys_sigreturn(void)
 {
   struct proc *p = myproc();
 
-  if (p->alarm_trapframe != 0) {
-    *p->trapframe = *p->alarm_trapframe;  // Restore the saved trapframe
-    kfree(p->alarm_trapframe);            // Free the allocated memory
-    p->alarm_trapframe = 0;               // Clear the saved trapframe pointer
-    p->in_handler = 0;                    // Mark that we are out of the handler
+  if(p->alarm_tf) {
+    memmove(p->trapframe, p->alarm_tf, sizeof(struct trapframe));
+    kfree(p->alarm_tf);
+    p->alarm_tf = 0;
+    p->alarm_on = 1;  // Re-enable the alarm
   }
-
+  usertrapret();  // function that returns the command back to the user space
   return 0;
 }

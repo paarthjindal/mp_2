@@ -115,18 +115,18 @@ allocproc(void)
     acquire(&p->lock);
     if (p->state == UNUSED)
     {
-      goto found;  // Found an UNUSED process
+      goto found; // Found an UNUSED process
     }
     else
     {
-      release(&p->lock);  // Release lock if not UNUSED
+      release(&p->lock); // Release lock if not UNUSED
     }
   }
-  return 0;  // No UNUSED process found, return 0
+  return 0; // No UNUSED process found, return 0
 
 found:
-  p->pid = allocpid();  // Assign PID
-  p->state = USED;      // Mark process as USED
+  p->pid = allocpid(); // Assign PID
+  p->state = USED;     // Mark process as USED
 
   // Initialize syscall_count array after process is allocated
   for (int i = 0; i < 31; i++)
@@ -137,8 +137,8 @@ found:
   // Allocate a trapframe page
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
   {
-    freeproc(p);      // Clean up if allocation fails
-    release(&p->lock);  // Release lock
+    freeproc(p);       // Clean up if allocation fails
+    release(&p->lock); // Release lock
     return 0;
   }
 
@@ -146,8 +146,8 @@ found:
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0)
   {
-    freeproc(p);      // Clean up if allocation fails
-    release(&p->lock);  // Release lock
+    freeproc(p);       // Clean up if allocation fails
+    release(&p->lock); // Release lock
     return 0;
   }
 
@@ -155,12 +155,16 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-  
-  p->rtime = 0;       // Initialize runtime
-  p->etime = 0;       // Initialize exit time
-  p->ctime = ticks;   // Record creation time
 
-  return p;  // Return the newly allocated process
+  p->rtime = 0;     // Initialize runtime
+  p->etime = 0;     // Initialize exit time
+  p->ctime = ticks; // Record creation time
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->ticks_count = 0;
+  p->alarm_on = 0;
+
+  return p; // Return the newly allocated process
 }
 
 // free a proc structure and the data hanging from it,
@@ -430,8 +434,9 @@ int wait(uint64 addr)
         if (pp->state == ZOMBIE)
         {
 
-          for(int i=0;i<31;i++){
-            p->syscall_count[i]=pp->syscall_count[i];
+          for (int i = 0; i < 31; i++)
+          {
+            p->syscall_count[i] = pp->syscall_count[i];
           }
 
           // Found one.

@@ -124,13 +124,11 @@ struct proc
   int syscall_count[31]; // Track system call counts (for 31 syscalls)
 
   // for part b
-  int alarmticks;         // Number of ticks before alarm is triggered
-  int tickcount;          // CPU ticks consumed since the last alarm
-  uint64 handler;         // Address of the alarm handler function
-  int in_handler;         // Flag to indicate if currently in a handler
-
-  // To store the state of the process before the handler is called
-  struct trapframe *alarm_trapframe;
+  int alarm_interval;       // Alarm interval in ticks
+  void (*alarm_handler)();  // Pointer to the alarm handler function
+  int ticks_count;          // Counter for CPU ticks
+  int alarm_on;             // Flag to indicate if alarm is active
+  struct trapframe *alarm_tf; // Saved trapframe for sigreturn
 };
 
 extern struct proc proc[NPROC];

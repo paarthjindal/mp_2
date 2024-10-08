@@ -135,7 +135,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_schedulertest\
-    $U/_syscount  # Add syscount here
+    $U/_syscount\
+	$U/_alarmtest
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

@@ -34,47 +34,67 @@ void trapinithart(void)
 // trap.c
 void usertrap(void)
 {
+  // printf("hello i am reaschin\n");
   int which_dev = 0;
-  struct proc *p = myproc();
-
   if ((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
-
-  // Send interrupts and exceptions to kerneltrap().
+  // send interrupts and exceptions to kerneltrap(),
+  // since we're now in the kernel.
+  w_stvec((uint64)kernelvec);
+  struct proc *p = myproc();
+  // save user program counter.
   p->trapframe->epc = r_sepc();
-
-  if ((which_dev = devintr()) == 0)
+  if (r_scause() == 8)
   {
-    printf("unexpected scause %p\n", r_scause());
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+    // system call
+    if (killed(p))
+      exit(-1);
+    // sepc points to the ecall instruction,
+    // but we want to return to the next instruction.
+    p->trapframe->epc += 4;
+    // an interrupt will change sepc, scause, and sstatus,
+    // so enable only now that we're done with those registers.
+    intr_on();
+    syscall();
   }
-
-  // Handle timer interrupt for sigalarm
-  if (which_dev == 2)
-  {                 // 2 is the timer interrupt
-    p->tickcount++; // Increment tick count
-
-    if (p->alarmticks > 0 && p->tickcount >= p->alarmticks && !p->in_handler)
+  else if ((which_dev = devintr()) != 0)
+  {
+    if (which_dev == 2)
     {
-      // Save the current state to restore later
-      p->alarm_trapframe = kalloc(); // Allocate space for saving trapframe
-      if (p->alarm_trapframe != 0)
+      if (p != 0 && p->state == RUNNING)
       {
-        *p->alarm_trapframe = *p->trapframe; // Save trapframe
-
-        // Set up trapframe to jump to the handler function
-        p->trapframe->epc = p->handler; // Set the handler address in epc
-        p->in_handler = 1;              // Mark that we are in the handler
-        p->tickcount = 0;               // Reset the tick counter
+        p->ticks_count++;
+        if (p->alarm_interval > 0 && p->ticks_count >= p->alarm_interval && p->alarm_on)
+        {
+          p->alarm_on = 0; // Disable alarm while handler is running
+          p->alarm_tf = kalloc();
+          if (p->alarm_tf == 0)
+            panic("usertrap: out of memory");
+          memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
+          p->trapframe->epc = (uint64)p->alarm_handler;
+          p->ticks_count = 0;
+        }
       }
     }
+    // ok
+  }
+  else
+  {
+    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    setkilled(p);
   }
 
-  if (p->killed)
-    exit(-1);
+  // give up the CPU if this is a timer interrupt.
 
-  // Return to user space.
+  if (killed(p))
+  {
+    exit(-1);
+  }
+  if (which_dev == 2)
+  {
+    yield();
+  }
   usertrapret();
 }
 
