@@ -84,6 +84,22 @@ int check_winner()
     return 0; // No winner yet
 }
 
+int handle_client_disconnection(int client_fd, int other_player_fd, const char *disconnected_message)
+{
+    char buffer[1024];
+
+    // Notify the other player that the opponent has disconnected
+    snprintf(buffer, sizeof(buffer), "%s\n", disconnected_message);
+    send(other_player_fd, buffer, strlen(buffer), 0);
+
+    // Close both player connections
+    close(client_fd);
+    close(other_player_fd);
+
+    // End the game session
+    return 0;
+}
+
 // Function to ask both players if they want to play again
 int ask_play_again(int player_fd, int other_player_fd)
 {
@@ -95,23 +111,39 @@ int ask_play_again(int player_fd, int other_player_fd)
 
     // Ask both players if they want to play again
     snprintf(buffer, sizeof(buffer), "Do you want to play again? (y/n): ");
-    send(player_fd, buffer, strlen(buffer), 0);
+    if (send(player_fd, buffer, strlen(buffer), 0) <= 0)
+    {
+        printf("Player 1 disconnected.\n");
+        pthread_mutex_unlock(&turn_mutex);
+        return handle_client_disconnection(player_fd, other_player_fd, "Your opponent disconnected. You win by default.");
+    }
 
     // Inform the other player that the server is waiting for the first player's response
     snprintf(buffer, sizeof(buffer), "Waiting for the other player to decide...\n");
-    send(other_player_fd, buffer, strlen(buffer), 0);
+   if (send(other_player_fd, buffer, strlen(buffer), 0) <= 0)
+    {
+        printf("Player 2 disconnected.\n");
+        pthread_mutex_unlock(&turn_mutex);
+        return handle_client_disconnection(other_player_fd, player_fd, "Your opponent disconnected. You win by default.");
+    }
 
     memset(buffer, 0, sizeof(buffer));
     if (recv(player_fd, buffer, sizeof(buffer), 0) <= 0)
     {
-        perror("recv error from player_fd");
-        return 0; // Player disconnected or error
+       printf("Player 1 disconnected during response.\n");
+        pthread_mutex_unlock(&turn_mutex);
+        return handle_client_disconnection(player_fd, other_player_fd, "Your opponent disconnected. You win by default.");
     }
 
     int player_response = (buffer[0] == 'y' || buffer[0] == 'Y') ? 1 : 0;
 
     snprintf(buffer, sizeof(buffer), "Do you want to play again? (y/n): ");
-    send(other_player_fd, buffer, strlen(buffer), 0);
+     if (send(other_player_fd, buffer, strlen(buffer), 0) <= 0)
+    {
+        printf("Player 2 disconnected.\n");
+        pthread_mutex_unlock(&turn_mutex);
+        return handle_client_disconnection(other_player_fd, player_fd, "Your opponent disconnected. You win by default.");
+    }
 
     // Inform the first player that the server is waiting for the second player's response
     snprintf(buffer, sizeof(buffer), "Waiting for the other player to decide...\n");
@@ -120,8 +152,9 @@ int ask_play_again(int player_fd, int other_player_fd)
     memset(buffer, 0, sizeof(buffer));
     if (recv(other_player_fd, buffer, sizeof(buffer), 0) <= 0)
     {
-        perror("recv error from player_fd");
-        return 0; // Other player disconnected or error
+        printf("Player 2 disconnected during response.\n");
+        pthread_mutex_unlock(&turn_mutex);
+        return handle_client_disconnection(other_player_fd, player_fd, "Your opponent disconnected. You win by default.");
     }
     // printf("i am working so hard on debug\n");
 
