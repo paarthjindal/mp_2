@@ -69,7 +69,7 @@ void usertrap(void)
           p->alarm_on = 0; // Disable alarm while handler is running
           p->alarm_tf = kalloc();
           if (p->alarm_tf == 0)
-            panic("usertrap: out of memory");
+            panic("Error !! usertrap: out of memory");
           memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
           p->trapframe->epc = (uint64)p->alarm_handler;
           p->ticks_count = 0;

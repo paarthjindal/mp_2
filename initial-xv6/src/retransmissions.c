@@ -1,118 +1,104 @@
-// client.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <sys/select.h>
-#include <time.h>
-#include <sys/time.h>
+#include <sys/socket.h>
 
-#define CHUNK_SIZE 256
-#define PORT 8080
-#define MAX_CHUNKS 10
-#define TIMEOUT 0.1 // 100 ms
+#define SERVER_IP "127.0.0.1"
+#define SERVER_PORT 8888
+#define CHUNK_SIZE 64
+#define MAX_CHUNKS 1000
 
-typedef struct
+struct Packet
 {
-    int seq_num;
-    int total_chunks;
+    uint32_t seq;
     char data[CHUNK_SIZE];
-} DataChunk;
+};
 
-typedef struct
+int receive_message()
 {
-    int ack_num;
-} ACKPacket;
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0)
+    {
+        perror("Socket creation failed");
+        return 1;
+    }
 
-#include <sys/time.h> // Add this for gettimeofday
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
 
-void send_data(int sockfd, struct sockaddr_in *server_addr, const char *data)
-{
-    int total_chunks = (strlen(data) + CHUNK_SIZE - 1) / CHUNK_SIZE; // Calculate total chunks
-    DataChunk chunk;
-    socklen_t addr_len = sizeof(*server_addr);
+    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("Connection failed");
+        return 1;
+    }
 
+    printf("Connected to server\n");
+
+    char *chunks[MAX_CHUNKS] = {0};
+    int chunks_received = 0;
+
+    // Receive total number of chunks
+    uint32_t total_chunks;
+    recv(sock, &total_chunks, sizeof(total_chunks), 0);
+    total_chunks = ntohl(total_chunks);
+    printf("Expecting %d chunks\n", total_chunks);
+
+    struct Packet packet;
+    while (chunks_received < total_chunks)
+    {
+        int received = recv(sock, &packet, sizeof(packet), 0);
+        if (received <= 0)
+        {
+            break;
+        }
+
+        uint32_t seq = ntohl(packet.seq);
+        printf("Received chunk %d\n", seq);
+
+        // Simulate random ACK loss (uncomment for testing)
+        // if (rand() % 10 < 3) {
+        //     printf("Simulating ACK loss for chunk %d\n", seq);
+        //     continue;
+        // }
+
+        if (!chunks[seq])
+        {
+            chunks[seq] = malloc(CHUNK_SIZE);
+            memcpy(chunks[seq], packet.data, CHUNK_SIZE);
+            chunks_received++;
+        }
+
+        // Send ACK
+        uint32_t ack = htonl(seq);
+        send(sock, &ack, sizeof(ack), 0);
+        printf("Sent ACK for chunk %d\n", seq);
+    }
+
+    // Reconstruct the message
+    char *message = malloc(total_chunks * CHUNK_SIZE + 1);
+    int pos = 0;
     for (int i = 0; i < total_chunks; i++)
     {
-        chunk.seq_num = i + 1;
-        chunk.total_chunks = total_chunks;
-        strncpy(chunk.data, data + i * CHUNK_SIZE, CHUNK_SIZE);
-
-        // Send chunk
-        sendto(sockfd, &chunk, sizeof(chunk), 0, (struct sockaddr *)server_addr, addr_len);
-        printf("Sent chunk %d: %s\n", chunk.seq_num, chunk.data);
-
-        // Wait for ACK with timeout
-        struct timeval start, end;
-        gettimeofday(&start, NULL); // Using gettimeofday to measure time
-
-        // Loop for retransmission
-        while (1)
-        {
-            ACKPacket ack;
-            fd_set readfds;
-            struct timeval timeout;
-            timeout.tv_sec = 0;
-            timeout.tv_usec = (int)(TIMEOUT * 1000000); // Convert to microseconds
-
-            FD_ZERO(&readfds);        // Clear the set
-            FD_SET(sockfd, &readfds); // Add sockfd to the set
-
-            int activity = select(sockfd + 1, &readfds, NULL, NULL, &timeout); // Waiting for ACK
-            if (activity > 0 && FD_ISSET(sockfd, &readfds))
-            {
-                recvfrom(sockfd, &ack, sizeof(ack), 0, NULL, NULL);
-                if (ack.ack_num == chunk.seq_num)
-                {
-                    printf("Received ACK for chunk %d\n", ack.ack_num);
-                    break; // Break if valid ACK received
-                }
-            }
-            else
-            {
-                printf("Timeout! Resending chunk %d\n", chunk.seq_num);
-                sendto(sockfd, &chunk, sizeof(chunk), 0, (struct sockaddr *)server_addr, addr_len);
-            }
-
-            // Check elapsed time using gettimeofday
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6; // Time in seconds
-            if (elapsed > TIMEOUT)
-            {
-                printf("Timeout! Resending chunk %d\n", chunk.seq_num);
-                sendto(sockfd, &chunk, sizeof(chunk), 0, (struct sockaddr *)server_addr, addr_len);
-                gettimeofday(&start, NULL); // Reset timer
-            }
-        }
+        memcpy(message + pos, chunks[i], CHUNK_SIZE);
+        pos += CHUNK_SIZE;
+        free(chunks[i]);
     }
+    message[pos] = '\0';
+
+    printf("Received message: %s\n", message);
+
+    free(message);
+    close(sock);
+    return 0;
 }
 
 int main()
 {
-    int sockfd;
-    struct sockaddr_in server_addr;
-
-    // Create socket
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0)
-    {
-        perror("Socket creation failed");
-        return EXIT_FAILURE;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY; // Server IP
-    server_addr.sin_port = htons(PORT);
-
-    // Example data to send
-    const char *data_to_send = "This is a sample text to be sent in chunks for demonstrating data sequencing and retransmission logic.";
-
-    // Send data
-    send_data(sockfd, &server_addr, data_to_send);
-
-    // Close socket
-    close(sockfd);
+    receive_message();
     return 0;
 }
