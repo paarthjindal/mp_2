@@ -8,7 +8,7 @@
 
 #define SERVER_PORT 8888
 #define CHUNK_SIZE 64
-#define TIMEOUT_SEC 0.1
+#define MAX_MESSAGE_SIZE 1024
 
 struct Packet
 {
@@ -16,7 +16,31 @@ struct Packet
     char data[CHUNK_SIZE];
 };
 
-int send_message(int client_sock, const char *message)
+int wait_for_receiver(int sock, struct sockaddr_in *receiver_addr)
+{
+    char buffer[16];
+    socklen_t addr_len = sizeof(*receiver_addr);
+
+    printf("Waiting for receiver to connect...\n");
+    int received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)receiver_addr, &addr_len);
+    if(received<0)
+    {
+        printf("failed to connect the client\n");
+        return -1;
+    }
+    if (received > 0 && strcmp(buffer, "CONNECT") == 0)
+    {
+        printf("Receiver is succesfully connected. Sending acknowledgment.\n");
+        char ack[] = "ACK";
+        sendto(sock, ack, strlen(ack), 0, (struct sockaddr *)receiver_addr, addr_len);
+        return 0;
+    }
+
+    printf("Failed to establish connection\n");
+    return -1;
+}
+
+int send_message(int sock, struct sockaddr_in *receiver_addr, const char *message)
 {
     int msg_len = strlen(message);
     int total_chunks = (msg_len + CHUNK_SIZE - 1) / CHUNK_SIZE;
@@ -24,7 +48,7 @@ int send_message(int client_sock, const char *message)
 
     // Send total number of chunks
     uint32_t total_chunks_net = htonl(total_chunks);
-    send(client_sock, &total_chunks_net, sizeof(total_chunks_net), 0);
+    sendto(sock, &total_chunks_net, sizeof(total_chunks_net), 0, (struct sockaddr *)receiver_addr, sizeof(*receiver_addr));
 
     struct Packet packet;
     for (int seq = 0; seq < total_chunks; seq++)
@@ -39,16 +63,17 @@ int send_message(int client_sock, const char *message)
         int ack_received = 0;
         while (!ack_received)
         {
-            send(client_sock, &packet, sizeof(uint32_t) + chunk_size, 0);
+            sendto(sock, &packet, sizeof(uint32_t) + chunk_size, 0, (struct sockaddr *)receiver_addr, sizeof(*receiver_addr));
             printf("Sent chunk %d\n", seq);
 
             struct timeval tv;
             tv.tv_sec = 0;
-            tv.tv_usec = TIMEOUT_SEC * 1000000;
-            setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            tv.tv_usec = 100000; // 0.1 second timeout
+            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
             uint32_t ack;
-            int received = recv(client_sock, &ack, sizeof(ack), 0);
+            socklen_t addr_len = sizeof(*receiver_addr);
+            int received = recvfrom(sock, &ack, sizeof(ack), 0, (struct sockaddr *)receiver_addr, &addr_len);
 
             if (received > 0)
             {
@@ -71,48 +96,38 @@ int send_message(int client_sock, const char *message)
 
 int main()
 {
-    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_sock < 0)
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
     {
         perror("Socket creation failed");
         return 1;
     }
 
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    server_addr.sin_port = htons(SERVER_PORT);
+    struct sockaddr_in sender_addr, receiver_addr;
+    memset(&sender_addr, 0, sizeof(sender_addr));
+    sender_addr.sin_family = AF_INET;
+    sender_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    sender_addr.sin_port = htons(SERVER_PORT);
 
-    if (bind(server_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    if (bind(sock, (struct sockaddr *)&sender_addr, sizeof(sender_addr)) < 0)
     {
         perror("Bind failed");
         return 1;
     }
 
-    if (listen(server_sock, 1) < 0)
+    if (wait_for_receiver(sock, &receiver_addr) < 0)
     {
-        perror("Listen failed");
+        close(sock);
         return 1;
     }
 
-    printf("Server is listening on port %d...\n", SERVER_PORT);
+    char message[MAX_MESSAGE_SIZE];
+    printf("Enter the message to send: ");
+    fgets(message, MAX_MESSAGE_SIZE, stdin);
+    message[strcspn(message, "\n")] = 0; // Remove trailing newline
 
-    struct sockaddr_in client_addr;
-    socklen_t client_len = sizeof(client_addr);
-    int client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_len);
-    if (client_sock < 0)
-    {
-        perror("Accept failed");
-        return 1;
-    }
+    send_message(sock, &receiver_addr, message);
 
-    printf("Client connected\n");
-
-    const char *message = "Mine name is paarth jindal , i study in iiith";
-    send_message(client_sock, message);
-
-    close(client_sock);
-    close(server_sock);
+    close(sock);
     return 0;
 }

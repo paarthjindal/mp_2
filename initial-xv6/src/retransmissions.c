@@ -5,8 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#define SERVER_IP "127.0.0.1"
-#define SERVER_PORT 8888
+#define SENDER_PORT 8888
 #define CHUNK_SIZE 64
 #define MAX_CHUNKS 1000
 
@@ -16,46 +15,44 @@ struct Packet
     char data[CHUNK_SIZE];
 };
 
-int receive_message()
+int initiate_connection(int sock, struct sockaddr_in *sender_addr)
 {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
+    char connect_msg[] = "CONNECT";
+    socklen_t addr_len = sizeof(*sender_addr);
+
+    printf("Initiating connection with sender...\n");
+    sendto(sock, connect_msg, strlen(connect_msg), 0, (struct sockaddr *)sender_addr, addr_len);
+
+    char ack[4];
+    int received = recvfrom(sock, ack, sizeof(ack), 0, (struct sockaddr *)sender_addr, &addr_len);
+
+    if (received > 0 && strcmp(ack, "ACK") == 0)
     {
-        perror("Socket creation failed");
-        return 1;
+        printf("Connection established with sender\n");
+        return 0;
     }
 
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SERVER_PORT);
-    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    printf("Failed to establish connection\n");
+    return -1;
+}
 
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-    {
-        perror("Connection failed");
-        return 1;
-    }
-
-    printf("Connected to server\n");
-
+int receive_message(int sock, struct sockaddr_in *sender_addr)
+{
     char *chunks[MAX_CHUNKS] = {0};
     int chunks_received = 0;
 
     // Receive total number of chunks
     uint32_t total_chunks;
-    recv(sock, &total_chunks, sizeof(total_chunks), 0);
+    socklen_t addr_len = sizeof(*sender_addr);
+    recvfrom(sock, &total_chunks, sizeof(total_chunks), 0, (struct sockaddr *)sender_addr, &addr_len);
     total_chunks = ntohl(total_chunks);
     printf("Expecting %d chunks\n", total_chunks);
 
     struct Packet packet;
     while (chunks_received < total_chunks)
     {
-        int received = recv(sock, &packet, sizeof(packet), 0);
-        if (received <= 0)
-        {
-            break;
-        }
+        addr_len = sizeof(*sender_addr);
+        int received = recvfrom(sock, &packet, sizeof(packet), 0, (struct sockaddr *)sender_addr, &addr_len);
 
         uint32_t seq = ntohl(packet.seq);
         printf("Received chunk %d\n", seq);
@@ -75,7 +72,7 @@ int receive_message()
 
         // Send ACK
         uint32_t ack = htonl(seq);
-        send(sock, &ack, sizeof(ack), 0);
+        sendto(sock, &ack, sizeof(ack), 0, (struct sockaddr *)sender_addr, sizeof(*sender_addr));
         printf("Sent ACK for chunk %d\n", seq);
     }
 
@@ -93,12 +90,43 @@ int receive_message()
     printf("Received message: %s\n", message);
 
     free(message);
-    close(sock);
     return 0;
 }
 
 int main()
 {
-    receive_message();
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+    {
+        perror("Socket creation failed");
+        return 1;
+    }
+
+    struct sockaddr_in receiver_addr, sender_addr;
+    memset(&receiver_addr, 0, sizeof(receiver_addr));
+    receiver_addr.sin_family = AF_INET;
+    receiver_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    receiver_addr.sin_port = htons(0); // Use any available port
+
+    if (bind(sock, (struct sockaddr *)&receiver_addr, sizeof(receiver_addr)) < 0)
+    {
+        perror("Bind failed");
+        return 1;
+    }
+
+    memset(&sender_addr, 0, sizeof(sender_addr));
+    sender_addr.sin_family = AF_INET;
+    sender_addr.sin_addr.s_addr = inet_addr("127.0.0.1"); // Assuming sender is on localhost
+    sender_addr.sin_port = htons(SENDER_PORT);
+
+    if (initiate_connection(sock, &sender_addr) < 0)
+    {
+        close(sock);
+        return 1;
+    }
+
+    receive_message(sock, &sender_addr);
+
+    close(sock);
     return 0;
 }
