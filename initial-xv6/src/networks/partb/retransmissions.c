@@ -6,8 +6,9 @@
 #include <sys/socket.h>
 
 #define SENDER_PORT 8888
-#define CHUNK_SIZE 8
-#define MAX_CHUNKS 1000
+#define CHUNK_SIZE 8  // i am assuming mine chunk size to be fixed to the value 8
+#define MAX_CHUNKS 1000  // can vary this variable according to my needs
+
 
 struct Packet
 {
