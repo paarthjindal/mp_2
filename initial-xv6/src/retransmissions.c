@@ -25,7 +25,11 @@ int initiate_connection(int sock, struct sockaddr_in *sender_addr)
 
     char ack[4];
     int received = recvfrom(sock, ack, sizeof(ack), 0, (struct sockaddr *)sender_addr, &addr_len);
-
+    if (received <= 0)
+    {
+        printf("failed to establish the connection with the server\n");
+        return -1;
+    }
     if (received > 0 && strcmp(ack, "ACK") == 0)
     {
         printf("Connection established with sender\n");
@@ -36,6 +40,17 @@ int initiate_connection(int sock, struct sockaddr_in *sender_addr)
     return -1;
 }
 
+int all_chunks_acknowledged(int *acked_chunks, int total_chunks)
+{
+    for (int i = 0; i < total_chunks; i++)
+    {
+        if (acked_chunks[i] == 0)
+        {
+            return 0; // If any chunk is not acknowledged, return false
+        }
+    }
+    return 1; // All chunks are acknowledged
+}
 int receive_message(int sock, struct sockaddr_in *sender_addr)
 {
     char *chunks[MAX_CHUNKS] = {0};
@@ -48,35 +63,49 @@ int receive_message(int sock, struct sockaddr_in *sender_addr)
     total_chunks = ntohl(total_chunks);
     printf("Expecting %d chunks\n", total_chunks);
 
+    int flag = 0; // Toggle flag to simulate ACK loss.
     struct Packet packet;
-    while (chunks_received < total_chunks)
+    int acked_chunks[MAX_CHUNKS] = {0}; // Track which chunks have been acknowledged
+
+    // Continue receiving packets until all chunks are received and acknowledged
+    while (chunks_received < total_chunks || !all_chunks_acknowledged(acked_chunks, total_chunks))
     {
         addr_len = sizeof(*sender_addr);
         int received = recvfrom(sock, &packet, sizeof(packet), 0, (struct sockaddr *)sender_addr, &addr_len);
 
-        uint32_t seq = ntohl(packet.seq);
-        printf("Received chunk %d\n", seq);
-
-        // Simulate random ACK loss (uncomment for testing)
-        // if (rand() % 10 < 3) {
-        //     printf("Simulating ACK loss for chunk %d\n", seq);
-        //     continue;
-        // }
-
-        if (!chunks[seq])
+        if (received > 0)
         {
-            chunks[seq] = malloc(CHUNK_SIZE);
-            memcpy(chunks[seq], packet.data, CHUNK_SIZE);
-            chunks_received++;
-        }
+            uint32_t seq = ntohl(packet.seq);
 
-        // Send ACK
-        uint32_t ack = htonl(seq);
-        sendto(sock, &ack, sizeof(ack), 0, (struct sockaddr *)sender_addr, sizeof(*sender_addr));
-        printf("Sent ACK for chunk %d\n", seq);
+            if (!chunks[seq])
+            { // Only process if chunk hasn't been received yet
+                printf("Received chunk %d\n", seq);
+                chunks[seq] = malloc(CHUNK_SIZE);
+                memcpy(chunks[seq], packet.data, CHUNK_SIZE);
+                chunks_received++;
+            }
+
+            // Send ACK, but simulate random ACK loss (every other packet ACK lost)
+            if (flag)
+            {
+                uint32_t ack = htonl(seq);
+                sendto(sock, &ack, sizeof(ack), 0, (struct sockaddr *)sender_addr, sizeof(*sender_addr));
+                printf("Sent ACK for chunk %d\n", seq);
+                acked_chunks[seq] = 1; // Mark this chunk as acknowledged
+                flag = 0;
+            }
+            else
+            {
+                flag = 1;
+            }
+        }
+        else
+        {
+            printf("error in getting connection established\n");
+        }
     }
 
-    // Reconstruct the message
+    // Reconstruct the message after all chunks are received
     char *message = malloc(total_chunks * CHUNK_SIZE + 1);
     int pos = 0;
     for (int i = 0; i < total_chunks; i++)
@@ -88,8 +117,8 @@ int receive_message(int sock, struct sockaddr_in *sender_addr)
     message[pos] = '\0';
 
     printf("Received message: %s\n", message);
-
     free(message);
+
     return 0;
 }
 
