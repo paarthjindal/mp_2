@@ -7,7 +7,7 @@
 #include <sys/time.h>
 
 #define SERVER_PORT 8888
-#define CHUNK_SIZE 64
+#define CHUNK_SIZE 8
 #define MAX_MESSAGE_SIZE 1024
 
 struct Packet
@@ -23,7 +23,7 @@ int wait_for_receiver(int sock, struct sockaddr_in *receiver_addr)
 
     printf("Waiting for receiver to connect...\n");
     int received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *)receiver_addr, &addr_len);
-    if(received<0)
+    if (received <= 0)
     {
         printf("failed to connect the client\n");
         return -1;
@@ -36,17 +36,18 @@ int wait_for_receiver(int sock, struct sockaddr_in *receiver_addr)
         return 0;
     }
 
-    printf("Failed to establish connection\n");
+    printf("Failed to establish connection between server and the client\n");
     return -1;
 }
 
 int send_message(int sock, struct sockaddr_in *receiver_addr, const char *message)
 {
     int msg_len = strlen(message);
+    printf("length of the message typed is %d", msg_len);
     int total_chunks = (msg_len + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    printf("Total chunks: %d\n", total_chunks);
+    printf("Total chunks to send: %d\n", total_chunks);
 
-    // Send total number of chunks
+    // Send total number of chunks to the receiver
     uint32_t total_chunks_net = htonl(total_chunks);
     sendto(sock, &total_chunks_net, sizeof(total_chunks_net), 0, (struct sockaddr *)receiver_addr, sizeof(*receiver_addr));
 
@@ -56,12 +57,13 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
         int chunk_size = (seq == total_chunks - 1) ? (msg_len % CHUNK_SIZE) : CHUNK_SIZE;
         if (chunk_size == 0)
             chunk_size = CHUNK_SIZE;
-
+        // htonl() converts the integer from host byte order to network byte order,
         packet.seq = htonl(seq);
+        // below i copied the content of one chunk
         memcpy(packet.data, message + seq * CHUNK_SIZE, chunk_size);
 
-        int ack_received = 0;
-        while (!ack_received)
+        int flag = 0;
+        while (!flag)
         {
             sendto(sock, &packet, sizeof(uint32_t) + chunk_size, 0, (struct sockaddr *)receiver_addr, sizeof(*receiver_addr));
             printf("Sent chunk %d\n", seq);
@@ -69,6 +71,7 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
             struct timeval tv;
             tv.tv_sec = 0;
             tv.tv_usec = 100000; // 0.1 second timeout
+            // The setsockopt() function is used to set a timeout  on the socket for receiving the ACK
             setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
             uint32_t ack;
@@ -80,7 +83,7 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
                 ack = ntohl(ack);
                 if (ack == seq)
                 {
-                    ack_received = 1;
+                    flag = 1;
                     printf("Received ACK for chunk %d\n", seq);
                 }
             }

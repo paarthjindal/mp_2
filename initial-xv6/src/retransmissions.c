@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 
 #define SENDER_PORT 8888
-#define CHUNK_SIZE 64
+#define CHUNK_SIZE 8
 #define MAX_CHUNKS 1000
 
 struct Packet
