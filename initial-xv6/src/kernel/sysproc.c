@@ -121,7 +121,6 @@ sys_getSysCount(void)
   // {
   //   printf("%d %d\n",i, p->syscall_count[i]);
   // }
-  
 
   argint(0, &mask);
   // printf("the mask is %d",mask);
@@ -133,7 +132,7 @@ sys_getSysCount(void)
   {
     if (mask & (1 << i))
     {
-      count += p->syscall_count[i-1]; // Add up the syscall counts
+      count += p->syscall_count[i - 1]; // Add up the syscall counts
     }
   }
 
@@ -148,13 +147,12 @@ sys_sigalarm(void)
   uint64 handler;
 
   argint(0, &interval);
-    
+
   argaddr(1, &handler);
-    
 
   struct proc *p = myproc();
   p->alarm_interval = interval;
-  p->alarm_handler = (void(*)())handler;
+  p->alarm_handler = (void (*)())handler;
   p->ticks_count = 0;
   p->alarm_on = (interval > 0);
 
@@ -167,12 +165,33 @@ sys_sigreturn(void)
 {
   struct proc *p = myproc();
 
-  if(p->alarm_tf) {
+  if (p->alarm_tf)
+  {
     memmove(p->trapframe, p->alarm_tf, sizeof(struct trapframe));
     kfree(p->alarm_tf);
     p->alarm_tf = 0;
-    p->alarm_on = 1;  // Re-enable the alarm
+    p->alarm_on = 1; // Re-enable the alarm
   }
-  usertrapret();  // function that returns the command back to the user space
+  usertrapret(); // function that returns the command back to the user space
   return 0;
+}
+
+// settickets system call
+uint64 sys_settickets(void)
+{
+  int n;
+
+  // Get the number of tickets from the user
+  argint(0, &n);
+  // Ensure the ticket number is valid (greater than 0)
+  if (n < 1)
+  {
+    printf("entered ticket is invalid error");
+    return -1; // Error: invalid ticket count
+  }
+
+  // Set the calling process's ticket count
+  myproc()->tickets = n;
+
+  return 0; // Success
 }

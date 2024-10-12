@@ -7,7 +7,7 @@
 #include "defs.h"
 
 struct spinlock tickslock;
-uint ticks;
+uint ticks; // stores the time 
 
 extern char trampoline[], uservec[], userret[];
 
@@ -84,17 +84,17 @@ void usertrap(void)
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     setkilled(p);
   }
-
+  if (which_dev == 2)
+  {
+    yield();
+  }
   // give up the CPU if this is a timer interrupt.
 
   if (killed(p))
   {
     exit(-1);
   }
-  if (which_dev == 2)
-  {
-    yield();
-  }
+  
   usertrapret();
 }
 

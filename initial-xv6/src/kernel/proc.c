@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include <sys/time.h> // For gettimeofday()
+#include <time.h>
+// Define the default scheduler if none is selected
 
 struct cpu cpus[NCPU];
 
@@ -133,6 +136,8 @@ found:
   {
     p->syscall_count[i] = 0;
   }
+  p->tickets = 1; // since by default a process should have 1 ticket
+  p->creation_time = ticks;
 
   // Allocate a trapframe page
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
@@ -268,6 +273,8 @@ void userinit(void)
 
   p->state = RUNNABLE;
 
+  p->tickets = 1;
+
   release(&p->lock);
 }
 
@@ -316,7 +323,8 @@ int fork(void)
     return -1;
   }
   np->sz = p->sz;
-
+  np->tickets = p->tickets;  // ensuring that the child and the parent has the same tickets as specified in the document
+  np->creation_time = ticks; // record its creation time
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -469,6 +477,154 @@ int wait(uint64 addr)
   }
 }
 
+#define MAX_SIZE 1000 // Max size for the random number list
+
+int lst[MAX_SIZE]; // Array to store generated random numbers
+int lst_index = 0; // Keep track of the current index in the array
+
+// Simple implementation of `atol` (convert string to long integer)
+long simple_atol(char *str)
+{
+  long res = 0;
+  for (int i = 0; str[i] != '\0'; ++i)
+  {
+    res = res * 10 + str[i] - '0';
+  }
+  return res;
+}
+static unsigned long seed = 123456789; // Initialize with a fixed seed
+
+int get_random_seed()
+{
+  // Parameters for the LCG
+  const unsigned long a = 1103515245;
+  const unsigned long c = 12345;
+  const unsigned long m = (1UL << 31); // 2^31
+
+  // Update the seed and return a pseudo-random seed
+  seed = (a * seed + c) % m;
+  return (int)(seed % 10000); // Use the last 4 digits of the generated number
+}
+
+void long_to_padded_string(long num, int total_length, char *result)
+{
+  int len = 0;
+  long temp = num;
+
+  // Calculate the number of digits in the number
+  do
+  {
+    len++;
+    temp /= 10;
+  } while (temp > 0);
+
+  // Add leading zeros if necessary
+  int padding = total_length - len;
+  for (int i = 0; i < padding; i++)
+  {
+    result[i] = '0';
+  }
+
+  // Convert the number to a string starting after the padding
+  for (int i = total_length - 1; i >= padding; i--)
+  {
+    result[i] = (num % 10) + '0';
+    num /= 10;
+  }
+
+  result[total_length] = '\0'; // Null-terminate the string
+}
+
+int pseudo_rand_num_generator(char *initial_seed, int iterations)
+{
+  if (iterations == 0 && lst_index > 0)
+  {
+    return lst[lst_index - 1]; // Return the last generated number
+  }
+
+  int seed_size = strlen(initial_seed);
+  long seed_val = simple_atol(initial_seed); // Convert the seed to an integer
+  if (seed_val == 0)
+  {
+    seed_val = get_random_seed(); // Use dynamic seed if seed is 0
+  }
+
+  for (int i = 0; i < iterations; i++)
+  {
+    // Square the seed value
+    seed_val = seed_val * seed_val;
+
+    // Extract the middle portion of the squared value as the new seed
+    char seed_str[30]; // Buffer large enough for seed as string
+
+    // Manually convert the seed_val to a string with zero-padding
+    long_to_padded_string(seed_val, 2 * seed_size, seed_str);
+
+    int mid_start = seed_size / 2;
+    char new_seed[seed_size + 1];
+    strncpy(new_seed, seed_str + mid_start, seed_size); // Extract middle part
+    new_seed[seed_size] = '\0';                         // Null-terminate
+
+    // Convert back to long and store in the list
+    lst[lst_index++] = simple_atol(new_seed);
+
+    // Use this new seed for the next iteration
+    seed_val = simple_atol(new_seed);
+  }
+
+  // Return the last generated number
+  return lst[lst_index - 1];
+}
+// Returns a random number in the range [1, max]
+// Helper function to convert an integer to a string
+void int_to_string(int num, char *result)
+{
+  int len = 0;
+  int temp = num;
+
+  // Calculate the number of digits in the number
+  do
+  {
+    len++;
+    temp /= 10;
+  } while (temp > 0);
+
+  // Convert the number to a string (from the end towards the start)
+  result[len] = '\0'; // Null-terminate the string
+  for (int i = len - 1; i >= 0; i--)
+  {
+    result[i] = (num % 10) + '0';
+    num /= 10;
+  }
+}
+
+// int random_at_most(int max)
+// {
+//   // Generate a random number using the pseudo-random number generator
+//   char seed[6];
+//   int_to_string(get_random_seed(), seed); // Convert dynamic seed to string
+
+//   int random_num = pseudo_rand_num_generator(seed, 10); // Generate 10 random iterations
+//   return 1 + (random_num % max);                        // Return number in the range [1, max]
+// }
+// static unsigned long seed = 123456789;
+
+// perhaps mine infinite loop reason is because of the way i am generating mine random numbers
+
+int simple_rand() {
+    const unsigned long a = 1103515245;
+    const unsigned long c = 1234567;
+    const unsigned long m = (1UL << 31);
+    
+    seed = (a * seed + c) % m;
+    return (int)(seed % 10000); // Return a number between 0 and 9999
+}
+
+int random_at_most(int max) {
+    int random_num = simple_rand(); // Use the LCG for random generation
+    return 1 + (random_num % max);  // Return a number in the range [1, max]
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -476,7 +632,8 @@ int wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void scheduler(void)
+
+void round_robin_scheduler(void) // it is a round robin approach for scheduling of various processes (its the default processor)
 {
   struct proc *p;
   struct cpu *c = mycpu();
@@ -508,6 +665,107 @@ void scheduler(void)
   }
 }
 
+
+void lottery_scheduler(void)
+{
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  for (;;)
+  {
+    // printf("LBSSSSSSS\n");
+    // Enable interrupts on this processor to avoid deadlocks.
+    intr_on();
+
+    int total_tickets = 0;   // Total number of tickets for all RUNNABLE processes
+    struct proc *winner = 0; // Store the winning process
+
+    // Calculate total number of tickets for all RUNNABLE processes
+    for (p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        total_tickets += p->tickets; // Accumulate total tickets
+      }
+      release(&p->lock);
+    }
+
+    // If no tickets, there are no runnable processes, continue the loop
+    if (total_tickets == 0)
+    {
+      continue;
+    }
+    // printf("reaching 1\n");
+    // Randomly select a winning ticket
+    // Generate a random number in the range [1, total_tickets]
+    // int winning_ticket = (rand() % total_tickets) + 1;
+
+    int winning_ticket = random_at_most(total_tickets); // Generate a random number in the range [1, total_tickets]
+    int ticket_counter = 0; // Track ticket count while iterating over processes
+
+    // Find the winning process by counting tickets until the winner is reached
+    for (p = proc; p < &proc[NPROC]; p++)
+    {
+      if (p == 0)
+      {
+        continue; // avoiding the null pointers
+      }
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        ticket_counter += p->tickets; // Increment the ticket counter
+
+        // If the ticket counter exceeds the winning ticket, select this process
+        if (ticket_counter >= winning_ticket)
+        {
+          // If no winner yet, or this process has fewer tickets, or arrived earlier with the same number of tickets
+          if (winner == 0 || p->tickets > winner->tickets ||
+              (p->tickets == winner->tickets && p->ctime < winner->ctime))
+          {
+            winner = p; // This process becomes the winner
+            release(&p->lock);
+
+            break;
+          }
+        }
+      }
+      release(&p->lock);
+    }
+    // printf("reaching 2\n");
+
+    // Run the winning process
+    if (winner != 0)
+    {
+      acquire(&winner->lock);
+      if (winner->state == RUNNABLE)
+      {
+        winner->state = RUNNING;
+        c->proc = winner;
+
+        // Context switch to the winning process
+        swtch(&c->context, &winner->context);
+
+        // Process has finished running, reset CPU's proc
+        c->proc = 0;
+      }
+      release(&winner->lock);
+    }
+    else
+    {
+      continue;
+    }
+    // printf("reaching 3\n");
+
+    // yield();
+  }
+}
+
+void mlfq_scheduler(void)
+{
+  // Implement MLFQ scheduling logic here...
+}
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -515,6 +773,31 @@ void scheduler(void)
 // be proc->intena and proc->noff, but that would
 // break in the few places where a lock is held but
 // there's no process.
+
+void scheduler(void)
+{
+  // printf("value of scheduer is %d",SCHEDULER);
+  // printf("laaiwndlq\n");
+  if (SCHEDULER == 2)
+  {
+    printf("mlfq will run");
+    mlfq_scheduler();
+  }
+  else if (SCHEDULER == 1)
+  {
+    printf("LBS will run\n");
+    lottery_scheduler();
+  }
+  else
+  {
+    printf("are you always running instead of others\n");
+    round_robin_scheduler(); // Round-robin or default scheduler
+  }
+
+  // Indicate to the compiler that this code should never return
+  __builtin_unreachable();
+}
+
 void sched(void)
 {
   int intena;

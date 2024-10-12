@@ -28,6 +28,7 @@ int sigalarm(int ticks, void (*handler)());
 int sigreturn(void);
 
 // ulib.c
+int settickets(void);
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);
 void *memmove(void*, const void*, int);

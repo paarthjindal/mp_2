@@ -3046,6 +3046,7 @@ countfree()
 
 int
 drivetests(int quick, int continuous, char *justone) {
+  printf("are you reaching here\n");
   do {
     printf("usertests starting\n");
     int free0 = countfree();
@@ -3077,6 +3078,7 @@ drivetests(int quick, int continuous, char *justone) {
 int
 main(int argc, char *argv[])
 {
+  printf("usertest are started\n");
   int continuous = 0;
   int quick = 0;
   char *justone = 0;

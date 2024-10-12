@@ -1,5 +1,6 @@
 K=kernel
 U=user
+SHEDULER=RR
 
 OBJS = \
   $K/entry.o \
@@ -62,7 +63,6 @@ CFLAGS += -mcmodel=medany
 CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
 CFLAGS += -I.
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
-
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
 CFLAGS += -fno-pie -no-pie
@@ -151,6 +151,30 @@ clean:
         $U/usys.S \
 	$(UPROGS)
 
+
+# $(info SCHEDULER is set to: $(SCHEDULER))
+
+
+# ifeq ($(SCHEDULER),LBS)
+#     CFLAGS += -DSCHEDULER_TYPE=1
+# else ifeq ($(SCHEDULER),MLFQ)
+#     CFLAGS += -DSCHEDULER_TYPE=2
+# else
+#     CFLAGS += -DSCHEDULER_TYPE=ROUND_ROBIN
+# endif
+
+ifeq ($(SCHEDULER),LBS)
+CFLAGS += -DSCHEDULER=1
+$(info Compiling with LBS scheduler)
+else ifeq ($(SCHEDULER),MLFQ)
+CFLAGS += -DSCHEDULER=2
+$(info Compiling with MLFQ scheduler)
+else
+CFLAGS += -DSCHEDULER=0
+$(info Compiling with Round-Robin scheduler)
+endif
+
+
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
 # QEMU's gdb stub command line changed in 0.11
@@ -175,4 +199,3 @@ qemu: $K/kernel fs.img
 qemu-gdb: $K/kernel .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
-

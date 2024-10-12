@@ -120,15 +120,28 @@ struct proc
   uint ctime;                  // When was the process created
   uint etime;                  // When did the process exited
 
-   // Add this array to track system call counts per process
+  // Add this array to track system call counts per process
   int syscall_count[31]; // Track system call counts (for 31 syscalls)
 
   // for part b
-  int alarm_interval;       // Alarm interval in ticks
-  void (*alarm_handler)();  // Pointer to the alarm handler function
-  int ticks_count;          // Counter for CPU ticks
-  int alarm_on;             // Flag to indicate if alarm is active
+  int alarm_interval;         // Alarm interval in ticks
+  void (*alarm_handler)();    // Pointer to the alarm handler function
+  int ticks_count;            // Counter for CPU ticks
+  int alarm_on;               // Flag to indicate if alarm is active
   struct trapframe *alarm_tf; // Saved trapframe for sigreturn
+
+  // below are the fields i require for lottery based scheduling
+  int tickets;            // Number of tickets for lottery scheduling
+  uint64 creation_time; // Time the process was created for tie-breaking
 };
+
+#define RR 0
+#define LBS 1
+#define MLFQ 2
+
+
+#ifndef SCHEDULER
+#define SCHEDULER RR
+#endif
 
 extern struct proc proc[NPROC];
