@@ -72,23 +72,40 @@ void enqueue(int priority, struct proc *p)
   mlfq_queues[priority].tail = p; // Update tail
 }
 
-struct proc *dequeue(int priority)
+void dequeue(int priority, struct proc *p)
 {
   if (priority < 0 || priority >= total_queue)
   {
-    return NULL;
+    return;
   }
-  // Remove from the front of the linked list
-  struct proc *p = mlfq_queues[priority].head;
-  if (p != NULL)
+  struct proc *prev = 0, *current = mlfq_queues[priority].head;
+
+  // Traverse the queue and find the process to remove
+  while (current != 0)
   {
-    mlfq_queues[priority].head = p->next; // Update head
-    if (!mlfq_queues[priority].head)
-    {
-      mlfq_queues[priority].tail = NULL; // List is empty
+    if (current == p)
+    { // Found the process
+      if (prev == 0)
+      {
+        // Process is at the head of the queue
+        mlfq_queues[priority].head = current->next;
+      }
+      else
+      {
+        // Process is in the middle or end of the queue
+        prev->next = current->next;
+      }
+      if (current == mlfq_queues[priority].tail)
+      {
+        // Process is at the tail of the queue
+        mlfq_queues[priority].tail = prev;
+      }
+      current->next = 0; // Disconnect the process
+      return;
     }
+    prev = current;
+    current = current->next;
   }
-  return p;
 }
 
 void proc_mapstacks(pagetable_t kpgtbl)
@@ -825,6 +842,8 @@ void lottery_scheduler(void)
     // yield();
   }
 }
+
+// common man hoja na mlfq
 int get_ticks_for_priority(int priority)
 {
   switch (priority)
@@ -869,6 +888,8 @@ void mlfq_scheduler(void)
   for (;;)
   {
     intr_on();
+    // Increment boost_ticks to manage the CPU
+    boost_ticks++;
 
     // Priority boosting: Every X ticks, move all processes to queue 0
     if (boost_ticks >= BOOST_INTERVAL)
@@ -912,7 +933,8 @@ void mlfq_scheduler(void)
     {
       selected_proc->state = RUNNING; // Change state to RUNNING
       c->proc = selected_proc;
-
+      // Dequeue the process from its current queue before running
+      dequeue(selected_proc->priority, selected_proc);
       // Perform context switch to the selected process
       swtch(&c->context, &selected_proc->context);
 
@@ -956,7 +978,7 @@ void mlfq_scheduler(void)
 void scheduler(void)
 {
   // printf("value of scheduer is %d",SCHEDULER);
-  
+
   // printf("laaiwndlq\n");
   if (SCHEDULER == 2)
   {
@@ -1003,6 +1025,7 @@ void yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+  enqueue(p->priority, p); // here is the change  i did
   sched();
   release(&p->lock);
 }

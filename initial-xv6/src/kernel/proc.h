@@ -140,20 +140,19 @@ struct proc
   struct proc *next;   // Pointer to the next process in the linked list
 };
 
-
 // over here proc struct is sort of pcb
 typedef struct queue
 {
   struct proc *head;
   struct proc *tail;
-}queue;
-
+} queue;
 
 #define RR 0
 #define LBS 1
 #define MLFQ 2
 
-#define total_queue 4
+
+
 #ifndef SCHEDULER
 #define SCHEDULER RR
 #endif
