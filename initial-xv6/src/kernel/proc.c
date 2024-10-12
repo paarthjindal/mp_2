@@ -8,6 +8,12 @@
 #include <sys/time.h> // For gettimeofday()
 #include <time.h>
 // Define the default scheduler if none is selected
+#define total_queue 4
+#define TICKS_0 1  // 1 timer tick for priority 0
+#define TICKS_1 4  // 4 timer ticks for priority 1
+#define TICKS_2 8  // 8 timer ticks for priority 2
+#define TICKS_3 16 // 16 timer ticks for priority 3
+#define BOOST_INTERVAL 48
 
 struct cpu cpus[NCPU];
 
@@ -32,6 +38,59 @@ struct spinlock wait_lock;
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
+
+struct queue mlfq_queues[total_queue]; // this is mine array of size 4
+
+void init_queues()
+{
+  for (int i = 0; i < total_queue; i++)
+  {
+    mlfq_queues[i].head = NULL;
+    mlfq_queues[i].tail = NULL;
+  }
+}
+
+void enqueue(int priority, struct proc *p)
+{
+  if (priority < 0 || priority >= total_queue)
+  {
+    printf("Enter valid priority\n");
+    return;
+  }
+  // Set next pointer to NULL
+  p->next = NULL;
+
+  // Insert into the linked list  we need to insert at the end
+  if (mlfq_queues[priority].tail)
+  {
+    mlfq_queues[priority].tail->next = p; // Append to the end
+  }
+  else
+  {
+    mlfq_queues[priority].head = p; // First element
+  }
+  mlfq_queues[priority].tail = p; // Update tail
+}
+
+struct proc *dequeue(int priority)
+{
+  if (priority < 0 || priority >= total_queue)
+  {
+    return NULL;
+  }
+  // Remove from the front of the linked list
+  struct proc *p = mlfq_queues[priority].head;
+  if (p != NULL)
+  {
+    mlfq_queues[priority].head = p->next; // Update head
+    if (!mlfq_queues[priority].head)
+    {
+      mlfq_queues[priority].tail = NULL; // List is empty
+    }
+  }
+  return p;
+}
+
 void proc_mapstacks(pagetable_t kpgtbl)
 {
   struct proc *p;
@@ -168,6 +227,10 @@ found:
   p->alarm_handler = 0;
   p->ticks_count = 0;
   p->alarm_on = 0;
+
+  p->priority = 0;              // Start in highest priority queue
+  p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
+  enqueue(0, p);                // Add to queue 0
 
   return p; // Return the newly allocated process
 }
@@ -611,18 +674,20 @@ void int_to_string(int num, char *result)
 
 // perhaps mine infinite loop reason is because of the way i am generating mine random numbers
 
-int simple_rand() {
-    const unsigned long a = 1103515245;
-    const unsigned long c = 1234567;
-    const unsigned long m = (1UL << 31);
-    
-    seed = (a * seed + c) % m;
-    return (int)(seed % 10000); // Return a number between 0 and 9999
+int simple_rand()
+{
+  const unsigned long a = 1103515245;
+  const unsigned long c = 1234567;
+  const unsigned long m = (1UL << 31);
+
+  seed = (a * seed + c) % m;
+  return (int)(seed % 10000); // Return a number between 0 and 9999
 }
 
-int random_at_most(int max) {
-    int random_num = simple_rand(); // Use the LCG for random generation
-    return 1 + (random_num % max);  // Return a number in the range [1, max]
+int random_at_most(int max)
+{
+  int random_num = simple_rand(); // Use the LCG for random generation
+  return 1 + (random_num % max);  // Return a number in the range [1, max]
 }
 
 // Per-CPU process scheduler.
@@ -665,7 +730,6 @@ void round_robin_scheduler(void) // it is a round robin approach for scheduling 
   }
 }
 
-
 void lottery_scheduler(void)
 {
   struct proc *p;
@@ -703,7 +767,7 @@ void lottery_scheduler(void)
     // int winning_ticket = (rand() % total_tickets) + 1;
 
     int winning_ticket = random_at_most(total_tickets); // Generate a random number in the range [1, total_tickets]
-    int ticket_counter = 0; // Track ticket count while iterating over processes
+    int ticket_counter = 0;                             // Track ticket count while iterating over processes
 
     // Find the winning process by counting tickets until the winner is reached
     for (p = proc; p < &proc[NPROC]; p++)
@@ -761,11 +825,126 @@ void lottery_scheduler(void)
     // yield();
   }
 }
+int get_ticks_for_priority(int priority)
+{
+  switch (priority)
+  {
+  case 0:
+    return TICKS_0; // 1 tick for priority 0
+  case 1:
+    return TICKS_1; // 4 ticks for priority 1
+  case 2:
+    return TICKS_2; // 8 ticks for priority 2
+  case 3:
+    return TICKS_3; // 16 ticks for priority 3
+  default:
+    return TICKS_0; // Default to priority 0 if something goes wrong
+  }
+}
 
+// Boost all processes to priority 0
+void boost_all_processes(void)
+{
+  struct proc *p;
+  for (int i = 0; i < NPROC; i++)
+  {
+    p = &proc[i];
+    if (p->state != UNUSED)
+    {
+      p->priority = 0;              // Move all processes to priority 0
+      p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
+      enqueue(0, p);                // Enqueue into priority 0
+    }
+  }
+}
+
+int boost_ticks = 0; // Global variable to track boost intervals
 void mlfq_scheduler(void)
 {
-  // Implement MLFQ scheduling logic here...
+  struct proc *p;
+  struct proc *selected_proc = 0;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  for (;;)
+  {
+    intr_on();
+
+    // Priority boosting: Every X ticks, move all processes to queue 0
+    if (boost_ticks >= BOOST_INTERVAL)
+    {
+      boost_all_processes(); // Boost all processes back to the highest priority queue
+      boost_ticks = 0;       // Reset boost tick counter
+    }
+
+    // Traverse all queues from highest (0) to lowest (total_queue - 1)
+    for (int i = 0; i < total_queue; i++)
+    {
+      selected_proc = 0;
+
+      // Iterate over all processes in queue i
+      for (p = mlfq_queues[i].head; p != 0; p = p->next)
+      {
+        if (p->state == RUNNABLE) // Check if the process is runnable
+        {
+          selected_proc = p; // Select the first RUNNABLE process
+          break;             // Once we find a RUNNABLE process, we stop searching this queue
+        }
+      }
+
+      // If a process was found in this queue, run it
+      if (selected_proc)
+      {
+        break; // Exit the queue traversal loop
+      }
+    }
+
+    // If no process is found (all queues empty), continue the loop
+    if (!selected_proc)
+    {
+      continue; // No process found, just continue the loop
+    }
+
+    // Run the selected process
+    acquire(&selected_proc->lock); // Lock the selected process
+
+    if (selected_proc->state == RUNNABLE)
+    {
+      selected_proc->state = RUNNING; // Change state to RUNNING
+      c->proc = selected_proc;
+
+      // Perform context switch to the selected process
+      swtch(&c->context, &selected_proc->context);
+
+      // The process finished its time slice or voluntarily yielded the CPU
+      c->proc = 0;
+
+      // Decrease remaining time slice for this process
+      selected_proc->remaining_ticks--;
+
+      // Check if the process used up its time slice
+      if (selected_proc->remaining_ticks <= 0)
+      {
+        // If the process hasn't finished and is still runnable, lower its priority
+        if (selected_proc->priority < total_queue - 1)
+        {
+          selected_proc->priority++; // Move to a lower-priority queue
+        }
+        // Reset the remaining time slice for the new priority level
+        selected_proc->remaining_ticks = get_ticks_for_priority(selected_proc->priority);
+        enqueue(selected_proc->priority, selected_proc); // Requeue the process
+      }
+      else
+      {
+        // Requeue the process in the same queue if it hasn't used up its slice
+        enqueue(selected_proc->priority, selected_proc);
+      }
+    }
+
+    release(&selected_proc->lock); // Release the lock for the selected process
+  }
 }
+
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -777,6 +956,7 @@ void mlfq_scheduler(void)
 void scheduler(void)
 {
   // printf("value of scheduer is %d",SCHEDULER);
+  
   // printf("laaiwndlq\n");
   if (SCHEDULER == 2)
   {

@@ -131,15 +131,29 @@ struct proc
   struct trapframe *alarm_tf; // Saved trapframe for sigreturn
 
   // below are the fields i require for lottery based scheduling
-  int tickets;            // Number of tickets for lottery scheduling
+  int tickets;          // Number of tickets for lottery scheduling
   uint64 creation_time; // Time the process was created for tie-breaking
+
+  // below are the field for mlfq based scheduling
+  int priority;        // Current priority level (0 to 3)
+  int remaining_ticks; // Remaining time slice for the process
+  struct proc *next;   // Pointer to the next process in the linked list
 };
+
+
+// over here proc struct is sort of pcb
+typedef struct queue
+{
+  struct proc *head;
+  struct proc *tail;
+}queue;
+
 
 #define RR 0
 #define LBS 1
 #define MLFQ 2
 
-
+#define total_queue 4
 #ifndef SCHEDULER
 #define SCHEDULER RR
 #endif
