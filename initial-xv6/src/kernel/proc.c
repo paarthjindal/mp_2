@@ -8,12 +8,6 @@
 #include <sys/time.h> // For gettimeofday()
 #include <time.h>
 // Define the default scheduler if none is selected
-#define total_queue 4
-#define TICKS_0 1  // 1 timer tick for priority 0
-#define TICKS_1 4  // 4 timer ticks for priority 1
-#define TICKS_2 8  // 8 timer ticks for priority 2
-#define TICKS_3 16 // 16 timer ticks for priority 3
-#define BOOST_INTERVAL 48
 
 struct cpu cpus[NCPU];
 
@@ -39,74 +33,74 @@ struct spinlock wait_lock;
 // Map it high in memory, followed by an invalid
 // guard page.
 
-struct queue mlfq_queues[total_queue]; // this is mine array of size 4
+// struct queue mlfq_queues[total_queue]; // this is mine array of size 4
 
-void init_queues()
-{
-  for (int i = 0; i < total_queue; i++)
-  {
-    mlfq_queues[i].head = NULL;
-    mlfq_queues[i].tail = NULL;
-  }
-}
+// void init_queues()
+// {
+//   for (int i = 0; i < total_queue; i++)
+//   {
+//     mlfq_queues[i].head = NULL;
+//     mlfq_queues[i].tail = NULL;
+//   }
+// }
 
-void enqueue(int priority, struct proc *p)
-{
-  if (priority < 0 || priority >= total_queue)
-  {
-    printf("Enter valid priority\n");
-    return;
-  }
-  // Set next pointer to NULL
-  p->next = NULL;
+// void enqueue(int priority, struct proc *p)
+// {
+//   if (priority < 0 || priority >= total_queue)
+//   {
+//     printf("Enter valid priority\n");
+//     return;
+//   }
+//   // Set next pointer to NULL
+//   p->next = NULL;
 
-  // Insert into the linked list  we need to insert at the end
-  if (mlfq_queues[priority].tail)
-  {
-    mlfq_queues[priority].tail->next = p; // Append to the end
-  }
-  else
-  {
-    mlfq_queues[priority].head = p; // First element
-  }
-  mlfq_queues[priority].tail = p; // Update tail
-}
+//   // Insert into the linked list  we need to insert at the end
+//   if (mlfq_queues[priority].tail)
+//   {
+//     mlfq_queues[priority].tail->next = p; // Append to the end
+//   }
+//   else
+//   {
+//     mlfq_queues[priority].head = p; // First element
+//   }
+//   mlfq_queues[priority].tail = p; // Update tail
+// }
 
-void dequeue(int priority, struct proc *p)
-{
-  if (priority < 0 || priority >= total_queue)
-  {
-    return;
-  }
-  struct proc *prev = 0, *current = mlfq_queues[priority].head;
+// void dequeue(int priority, struct proc *p)
+// {
+//   if (priority < 0 || priority >= total_queue)
+//   {
+//     return;
+//   }
+//   struct proc *prev = 0, *current = mlfq_queues[priority].head;
 
-  // Traverse the queue and find the process to remove
-  while (current != 0)
-  {
-    if (current == p)
-    { // Found the process
-      if (prev == 0)
-      {
-        // Process is at the head of the queue
-        mlfq_queues[priority].head = current->next;
-      }
-      else
-      {
-        // Process is in the middle or end of the queue
-        prev->next = current->next;
-      }
-      if (current == mlfq_queues[priority].tail)
-      {
-        // Process is at the tail of the queue
-        mlfq_queues[priority].tail = prev;
-      }
-      current->next = 0; // Disconnect the process
-      return;
-    }
-    prev = current;
-    current = current->next;
-  }
-}
+//   // Traverse the queue and find the process to remove
+//   while (current != 0)
+//   {
+//     if (current == p)
+//     { // Found the process
+//       if (prev == 0)
+//       {
+//         // Process is at the head of the queue
+//         mlfq_queues[priority].head = current->next;
+//       }
+//       else
+//       {
+//         // Process is in the middle or end of the queue
+//         prev->next = current->next;
+//       }
+//       if (current == mlfq_queues[priority].tail)
+//       {
+//         // Process is at the tail of the queue
+//         mlfq_queues[priority].tail = prev;
+//       }
+//       current->next = 0; // Disconnect the process
+//       return;
+//     }
+//     prev = current;
+//     current = current->next;
+//   }
+// }
 
 void proc_mapstacks(pagetable_t kpgtbl)
 {
@@ -244,10 +238,13 @@ found:
   p->alarm_handler = 0;
   p->ticks_count = 0;
   p->alarm_on = 0;
+  p->ticks = 0;
+  p->priority = 0;
+  p->lastscheduledticks = 0;
 
-  p->priority = 0;              // Start in highest priority queue
-  p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
-  enqueue(0, p);                // Add to queue 0
+  // p->priority = 0;              // Start in highest priority queue
+
+  // enqueue(0, p);                // Add to queue 0
 
   return p; // Return the newly allocated process
 }
@@ -272,6 +269,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  // dequeue(p->priority, p); // for mlfq
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -354,7 +352,7 @@ void userinit(void)
   p->state = RUNNABLE;
 
   p->tickets = 1;
-
+  // enqueue(0, p); // for mlfq
   release(&p->lock);
 }
 
@@ -394,7 +392,11 @@ int fork(void)
   {
     return -1;
   }
-
+  // if (SCHEDULER == 2)
+  // {
+  //   np->priority = 0;
+  //   np->state = RUNNABLE;
+  // }
   // Copy user memory from parent to child.
   if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0)
   {
@@ -489,7 +491,7 @@ void exit(int status)
   p->xstate = status;
   p->state = ZOMBIE;
   p->etime = ticks;
-
+  // dequeue(p->priority, p); // mlfq
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.
@@ -862,110 +864,194 @@ int get_ticks_for_priority(int priority)
 }
 
 // Boost all processes to priority 0
-void boost_all_processes(void)
-{
-  struct proc *p;
-  for (int i = 0; i < NPROC; i++)
-  {
-    p = &proc[i];
-    if (p->state != UNUSED)
-    {
-      p->priority = 0;              // Move all processes to priority 0
-      p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
-      enqueue(0, p);                // Enqueue into priority 0
-    }
-  }
-}
+// void boost_all_processes(void)
+// {
+//   struct proc *p;
+//   for (int i = 0; i < NPROC; i++)
+//   {
+//     p = &proc[i];
+//     if (p->state != UNUSED)
+//     {
+//       p->priority = 0;              // Move all processes to priority 0
+//       p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
+//       enqueue(0, p);                // Enqueue into priority 0
+//     }
+//   }
+// }
 
-int boost_ticks = 0; // Global variable to track boost intervals
 void mlfq_scheduler(void)
 {
+  // mlfq=1;
   struct proc *p;
-  struct proc *selected_proc = 0;
   struct cpu *c = mycpu();
   c->proc = 0;
-
   for (;;)
   {
+    // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    // Increment boost_ticks to manage the CPU
-    boost_ticks++;
-
-    // Priority boosting: Every X ticks, move all processes to queue 0
-    if (boost_ticks >= BOOST_INTERVAL)
+    for (p = proc; p < &proc[NPROC]; p++)
     {
-      boost_all_processes(); // Boost all processes back to the highest priority queue
-      boost_ticks = 0;       // Reset boost tick counter
-    }
-
-    // Traverse all queues from highest (0) to lowest (total_queue - 1)
-    for (int i = 0; i < total_queue; i++)
-    {
-      selected_proc = 0;
-
-      // Iterate over all processes in queue i
-      for (p = mlfq_queues[i].head; p != 0; p = p->next)
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
       {
-        if (p->state == RUNNABLE) // Check if the process is runnable
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        int flag = 0;
+        for (struct proc *i = proc; i < &proc[NPROC]; i++)
         {
-          selected_proc = p; // Select the first RUNNABLE process
-          break;             // Once we find a RUNNABLE process, we stop searching this queue
+          if (i->priority < p->priority && i->state == RUNNABLE)
+          {
+            flag = 1;
+            break;
+          }
+        }
+
+        if (flag == 0)
+        {
+          for (struct proc *i = proc; i < &proc[NPROC]; i++)
+          {
+            if (i->priority == p->priority && i->lastscheduledticks > p->lastscheduledticks && i->state == RUNNABLE)
+            {
+              flag = 1;
+              break;
+            }
+          }
+          if (p->priority == 3)
+          {
+            if (flag == 0)
+            {
+              p->state = RUNNING;
+              c->proc = p;
+              // printf("HERE\n");
+
+              swtch(&c->context, &p->context);
+              // printf("HERE1\n");
+              c->proc = 0;
+              release(&p->lock);
+              continue;
+            }
+          }
+
+          if (flag == 0)
+          {
+            for (struct proc *i = proc; i < &proc[NPROC]; i++)
+            {
+              if (i->priority == p->priority && i->lastscheduledticks == p->lastscheduledticks && i->ctime < p->ctime && i->state == RUNNABLE)
+              {
+                flag = 1;
+                break;
+              }
+            }
+            if (flag == 0)
+            {
+              p->state = RUNNING;
+              c->proc = p;
+              // printf("HERE\n");
+
+              swtch(&c->context, &p->context);
+              // printf("HERE1\n");
+              c->proc = 0;
+            }
+          }
         }
       }
 
-      // If a process was found in this queue, run it
-      if (selected_proc)
-      {
-        break; // Exit the queue traversal loop
-      }
+      release(&p->lock);
     }
-
-    // If no process is found (all queues empty), continue the loop
-    if (!selected_proc)
-    {
-      continue; // No process found, just continue the loop
-    }
-
-    // Run the selected process
-    acquire(&selected_proc->lock); // Lock the selected process
-
-    if (selected_proc->state == RUNNABLE)
-    {
-      selected_proc->state = RUNNING; // Change state to RUNNING
-      c->proc = selected_proc;
-      // Dequeue the process from its current queue before running
-      dequeue(selected_proc->priority, selected_proc);
-      // Perform context switch to the selected process
-      swtch(&c->context, &selected_proc->context);
-
-      // The process finished its time slice or voluntarily yielded the CPU
-      c->proc = 0;
-
-      // Decrease remaining time slice for this process
-      selected_proc->remaining_ticks--;
-
-      // Check if the process used up its time slice
-      if (selected_proc->remaining_ticks <= 0)
-      {
-        // If the process hasn't finished and is still runnable, lower its priority
-        if (selected_proc->priority < total_queue - 1)
-        {
-          selected_proc->priority++; // Move to a lower-priority queue
-        }
-        // Reset the remaining time slice for the new priority level
-        selected_proc->remaining_ticks = get_ticks_for_priority(selected_proc->priority);
-        enqueue(selected_proc->priority, selected_proc); // Requeue the process
-      }
-      else
-      {
-        // Requeue the process in the same queue if it hasn't used up its slice
-        enqueue(selected_proc->priority, selected_proc);
-      }
-    }
-
-    release(&selected_proc->lock); // Release the lock for the selected process
   }
 }
+// void mlfq_scheduler(void)
+// {
+//   struct proc *p;
+//   struct proc *selected_proc = 0;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
+
+//   for (;;)
+//   {
+//     intr_on();
+//     // Increment boost_ticks to manage the CPU
+//     // boost_ticks+
+//     // printf("Current tick: %d\n", ticks);
+//     // Priority boosting: Every X ticks, move all processes to queue 0
+//     if (ticks % BOOST_INTERVAL == 0)
+//     {
+//       boost_all_processes(); // Boost all processes back to the highest priority queue
+//       // boost_ticks = 0;       // Reset boost tick counter
+//     }
+
+//     // Traverse all queues from highest (0) to lowest (total_queue - 1)
+//     for (int i = 0; i < total_queue; i++)
+//     {
+//       selected_proc = 0;
+
+//       // Iterate over all processes in queue i
+//       for (p = mlfq_queues[i].head; p != 0; p = p->next)
+//       {
+//         if (p->state == RUNNABLE) // Check if the process is runnable
+//         {
+//           selected_proc = p; // Select the first RUNNABLE process
+//           break;             // Once we find a RUNNABLE process, we stop searching this queue
+//         }
+//       }
+
+//       // If a process was found in this queue, run it
+//       if (selected_proc)
+//       {
+//         // printf("Selected process: %d, Priority: %d\n", selected_proc->pid, selected_proc->priority);
+//         break; // Exit the queue traversal loop
+//       }
+//     }
+
+//     // If no process is found (all queues empty), continue the loop
+//     if (!selected_proc)
+//     {
+//       // printf("No runnable process found, waiting...\n");clear
+
+//       continue; // No process found, just continue the loop
+//     }
+
+//     // Run the selected process
+//     acquire(&selected_proc->lock); // Lock the selected process
+
+//     if (selected_proc->state == RUNNABLE)
+//     {
+//       selected_proc->state = RUNNING; // Change state to RUNNING
+//       c->proc = selected_proc;
+//       // Dequeue the process from its current queue before running
+//       dequeue(selected_proc->priority, selected_proc);
+//       // Perform context switch to the selected process
+//       swtch(&c->context, &selected_proc->context);
+
+//       // The process finished its time slice or voluntarily yielded the CPU
+//       c->proc = 0;
+
+//       // Decrease remaining time slice for this process
+//       selected_proc->remaining_ticks--;
+
+//       // Check if the process used up its time slice
+//       if (selected_proc->remaining_ticks <= 0)
+//       {
+//         // If the process hasn't finished and is still runnable, lower its priority
+//         if (selected_proc->priority < total_queue - 1)
+//         {
+//           selected_proc->priority++; // Move to a lower-priority queue
+//         }
+//         // Reset the remaining time slice for the new priority level
+//         selected_proc->remaining_ticks = get_ticks_for_priority(selected_proc->priority);
+//         enqueue(selected_proc->priority, selected_proc); // Requeue the process
+//       }
+//       else
+//       {
+//         // Requeue the process in the same queue if it hasn't used up its slice
+//         enqueue(selected_proc->priority, selected_proc);
+//       }
+//     }
+
+//     release(&selected_proc->lock); // Release the lock for the selected process
+//   }
+// }
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -1025,7 +1111,7 @@ void yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
-  enqueue(p->priority, p); // here is the change  i did
+  // enqueue(p->priority, p); // here is the change  i did
   sched();
   release(&p->lock);
 }
@@ -1206,6 +1292,45 @@ void procdump(void)
     printf("\n");
   }
 }
+// void procdump(void)
+// {
+//     static char *states[] = {
+//         [UNUSED] "unused",
+//         [USED] "used",
+//         [SLEEPING] "sleep ",
+//         [RUNNABLE] "runble",
+//         [RUNNING] "run   ",
+//         [ZOMBIE] "zombie"
+//     };
+
+//     struct proc *p;
+//     char *state;
+
+//     printf("\nMLFQ Process Dump\n");
+
+//     // Print each queue from highest priority (0) to lowest
+//     for (int i = 0; i < total_queue; i++)
+//     {
+//         printf("Queue %d:\n", i);
+
+//         // Traverse the processes in the current queue
+//         for (p = mlfq_queues[i].head; p != NULL; p = p->next)
+//         {
+//             if (p->state == UNUSED)
+//                 continue;
+
+//             // Get the state as a string
+//             if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
+//                 state = states[p->state];
+//             else
+//                 state = "???";
+
+//             // Print process information: PID, state, name, and ticks per queue
+//             printf("  PID: %d | State: %s | Name: %s | Ticks in Queue: %d\n",
+//                    p->pid, state, p->name, p->remaining_ticks);
+//         }
+//     }
+// }
 
 // waitx
 int waitx(uint64 addr, uint *wtime, uint *rtime)
@@ -1233,6 +1358,7 @@ int waitx(uint64 addr, uint *wtime, uint *rtime)
           // Found one.
           pid = np->pid;
           *rtime = np->rtime;
+          printf("%d \n",*rtime);
           *wtime = np->etime - np->ctime - np->rtime;
           if (addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
                                    sizeof(np->xstate)) < 0)
@@ -1267,6 +1393,10 @@ void update_time()
   struct proc *p;
   for (p = proc; p < &proc[NPROC]; p++)
   {
+    if (p->pid >= 9 && p->pid <= 14)
+    {
+      printf("%d %d %d\n", p->pid, p->priority, ticks);
+    }
     acquire(&p->lock);
     if (p->state == RUNNING)
     {

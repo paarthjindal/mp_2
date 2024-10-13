@@ -5,9 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#define NULL ((void *)0)
 
 struct spinlock tickslock;
-uint ticks; // stores the time 
+uint ticks; // stores the time
 
 extern char trampoline[], uservec[], userret[];
 
@@ -26,7 +27,76 @@ void trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
 }
+#define total_queue 4
 
+int get_time_slice(int priority)
+{
+  switch (priority)
+  {
+  case 0:
+    return 1;
+  case 1:
+    return 4;
+  case 2:
+    return 8;
+  case 3:
+    return 16;
+  default:
+    return 1;
+  }
+}
+// #define BOOST_INTERVAL 48
+// void boost_all_processes(void)
+// {
+//   struct proc *p;
+//   for (int i = 0; i < NPROC; i++)
+//   {
+//     p = &proc[i];
+//     if (p->state != UNUSED)
+//     {
+//       p->priority = 0;              // Move all processes to priority 0
+//       p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
+//       enqueue(0, p);                // Enqueue into priority 0
+//     }
+//   }
+// }
+
+void adjust_process_priority(struct proc *p)
+{
+  // Check if the process has exhausted its time slice
+  if (p->ticks_count >= get_time_slice(p->priority))
+  {
+    // Move to the next lower priority queue if not already at the lowest level
+    if (p->priority < total_queue - 1) // Assuming total_queue is the number of queues
+    {
+      // Move the process to a lower priority
+      p->priority++;
+    }
+  }
+  else
+  {
+    // If the process has not exhausted its time slice, we can choose to keep it in the same queue.
+    // Optional: You could implement logic here to possibly increase the priority based on behavior.
+  }
+
+  // Reset the tick count for the next time slice
+  p->ticks_count = 0; // Reset ticks count for the next time slice
+}
+
+void lastscheduled(void)
+{
+  for (struct proc *p = proc; p < &proc[NPROC]; p++)
+  {
+    if (p->state == RUNNING)
+    {
+      p->lastscheduledticks = 0;
+    }
+    else if (p->state == RUNNABLE)
+    {
+      p->lastscheduledticks += 1;
+    }
+  }
+}
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -59,7 +129,174 @@ void usertrap(void)
   }
   else if ((which_dev = devintr()) != 0)
   {
-    if (which_dev == 2)
+    if (which_dev == 2 && SCHEDULER == 2)
+    { // Timer interrupt
+      // boost_ticks++;
+      // if (p && p->state == RUNNING)
+      // {
+      //   // Increment the tick count for the current process
+      //   p->ticks_count++;
+      //   // need to implement aging over here
+      //   // Get the time slice for the current process's priority
+      //   int time_slice = get_time_slice(p->priority);
+
+      //   // Preempt only if the process has used up its time slice
+      //   if (p->ticks_count >= time_slice)
+      //   {
+      //     // Move process to the next queue (if applicable) and reset ticks
+      //     adjust_process_priority(p);
+      //     // Reset process ticks for the next time slice
+      //     p->ticks_count = 0;
+      //     yield();
+      //   }
+      //   // Check for process boosting
+      //   if (ticks% BOOST_INTERVAL==0)
+      //   {
+      //     boost_all_processes(); // Boost all processes to the highest priority
+      //     // boost_ticks = 0;       // Reset the boost tick counter
+      //   }
+
+      //   // Check for preemption by looking for a higher priority process
+      //   struct proc *higher_priority_process = NULL;
+      //   for (int i = 0; i < total_queue; i++)
+      //   {
+      //     if (i < p->priority) // Only check higher priority queues
+      //     {
+      //       struct proc *temp = mlfq_queues[i].head;
+      //       while (temp != NULL)
+      //       {
+      //         if (temp->state == RUNNABLE)
+      //         {
+      //           higher_priority_process = temp; // Found a higher priority process
+      //           break;                          // No need to continue searching
+      //         }
+      //         temp = temp->next; // Move to the next process
+      //       }
+      //     }
+      //     if (higher_priority_process)
+      //       break; // Exit the outer loop if we found a higher priority process
+      //   }
+
+      //   // If a higher priority process is found, preempt the current process
+      //   if (higher_priority_process)
+      //   {
+      //     // Dequeue the current process
+      //     if(p&&p->state==RUNNABLE)
+      //     {
+      //     dequeue(p->priority, p);
+      //     enqueue(p->priority,p);
+      //     }
+      //     // Yield to the higher priority process
+      //     yield();
+      //     return; // Exit to re-evaluate which process to run
+      //   }
+      // }
+      // i am shifting mine implementation to without queues commenting it
+      lastscheduled();
+      p->ticks += 1;
+      int flag = 0;
+      for (struct proc *t = proc; t < &proc[NPROC]; t++)
+      {
+        if (t->lastscheduledticks >= 30 && t->priority != 0 && t->state == RUNNABLE)
+        {
+          t->lastscheduledticks = 0;
+          t->priority -= 1;
+          if (p->priority > t->priority)
+          {
+            flag = 1;
+            break;
+          }
+        }
+      }
+       if (p != 0 && p->state == RUNNING)
+      {
+        p->ticks_count++;
+        if (p->alarm_interval > 0 && p->ticks_count >= p->alarm_interval && p->alarm_on)
+        {
+          p->alarm_on = 0; // Disable alarm while handler is running
+          p->alarm_tf = kalloc();
+          if (p->alarm_tf == 0)
+            panic("Error !! usertrap: out of memory");
+          memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
+          p->trapframe->epc = (uint64)p->alarm_handler;
+          p->ticks_count = 0;
+        }
+      }
+      // Alarm check (added this from the SCHEDULER != 2 logic)
+      // if (p != 0 && p->alarm_interval > 0 && p->ticks_count >= p->alarm_interval && p->alarm_on)
+      // {
+      //   p->alarm_on = 0; // Disable alarm while handler is running
+      //   p->alarm_tf = kalloc();
+      //   if (p->alarm_tf == 0)
+      //     panic("usertrap: out of memory");
+
+      //   // Save the current trapframe and invoke the alarm handler
+      //   memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
+      //   p->trapframe->epc = (uint64)p->alarm_handler;
+      //   p->ticks_count = 0;
+      // }
+      if (p->priority == 0 && p->ticks == 1)
+      {
+        p->priority += 1;
+        p->ticks = 0;
+        for (struct proc *t = proc; t < &proc[NPROC]; t++)
+        {
+          if (t->lastscheduledticks >= 30 && t->priority != 0 && t->state == RUNNABLE)
+          {
+            t->lastscheduledticks = 0;
+            t->priority -= 1;
+          }
+        }
+        yield();
+      }
+      else if (p->priority == 1 && p->ticks == 2)
+      {
+        p->priority += 1;
+        p->ticks = 0;
+        for (struct proc *t = proc; t < &proc[NPROC]; t++)
+        {
+          if (t->lastscheduledticks >= 30 && t->priority != 0 && t->state == RUNNABLE)
+          {
+            t->lastscheduledticks = 0;
+            t->priority -= 1;
+          }
+        }
+        yield();
+      }
+      else if (p->priority == 2 && p->ticks == 8)
+      {
+        p->priority += 1;
+        p->ticks = 0;
+        for (struct proc *t = proc; t < &proc[NPROC]; t++)
+        {
+          if (t->lastscheduledticks >= 30 && t->priority != 0 && t->state == RUNNABLE)
+          {
+            t->lastscheduledticks = 0;
+            t->priority -= 1;
+          }
+        }
+        yield();
+      }
+      else if (p->priority == 3 && p->ticks == 10)
+      {
+        p->ticks = 0;
+        for (struct proc *t = proc; t < &proc[NPROC]; t++)
+        {
+          if (t->lastscheduledticks >= 30 && t->priority != 0 && t->state == RUNNABLE)
+          {
+            t->lastscheduledticks = 0;
+            t->priority -= 1;
+          }
+        }
+        // printf("RUNNER:%d\n",p->pid);
+        yield();
+      }
+      else if (flag == 1)
+      {
+        yield();
+      }
+    }
+    else if (which_dev == 2 && SCHEDULER != 2)
     {
       if (p != 0 && p->state == RUNNING)
       {
@@ -76,6 +313,7 @@ void usertrap(void)
         }
       }
     }
+
     // ok
   }
   else
@@ -94,7 +332,7 @@ void usertrap(void)
   {
     exit(-1);
   }
-  
+
   usertrapret();
 }
 

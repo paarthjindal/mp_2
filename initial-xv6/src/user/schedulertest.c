@@ -20,7 +20,9 @@ int main()
     {
       if (n < IO)
       {
+        // printf("started\n");
         sleep(200); // IO bound processes
+        // printf("terminated\n");
       }
       else
       {

@@ -133,11 +133,17 @@ struct proc
   // below are the fields i require for lottery based scheduling
   int tickets;          // Number of tickets for lottery scheduling
   uint64 creation_time; // Time the process was created for tie-breaking
+  
 
-  // below are the field for mlfq based scheduling
-  int priority;        // Current priority level (0 to 3)
-  int remaining_ticks; // Remaining time slice for the process
-  struct proc *next;   // Pointer to the next process in the linked list
+  // now i am not using queue
+  int priority;
+  // struct trapframe * trapcopy;
+  int lastscheduledticks;
+  int ticks;
+  // // below are the field for mlfq based scheduling
+  // int priority; // Current priority level (0 to 3)
+  // int remaining_ticks; // Remaining time slice for the process
+  // struct proc *next;   // Pointer to the next process in the linked list
 };
 
 // over here proc struct is sort of pcb
@@ -151,10 +157,22 @@ typedef struct queue
 #define LBS 1
 #define MLFQ 2
 
-
+#define total_queue 4
+#define TICKS_0 1  // 1 timer tick for priority 0
+#define TICKS_1 4  // 4 timer ticks for priority 1
+#define TICKS_2 8  // 8 timer ticks for priority 2
+#define TICKS_3 16 // 16 timer ticks for priority 3
+#define BOOST_INTERVAL 48
+void dequeue(int priority, struct proc *p);
+void enqueue(int priority, struct proc *p);
+void init_queues();
+void boost_all_processes(void);
+int get_ticks_for_priority(int priority);
 
 #ifndef SCHEDULER
 #define SCHEDULER RR
 #endif
 
 extern struct proc proc[NPROC];
+// extern int boost_ticks;
+extern struct queue mlfq_queues[total_queue]; // this is mine array of size 4

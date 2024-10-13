@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "types.h": "c",
-        "compare": "c"
+        "compare": "c",
+        "defs.h": "c"
     }
 }
