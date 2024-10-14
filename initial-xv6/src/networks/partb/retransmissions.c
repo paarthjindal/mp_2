@@ -56,6 +56,7 @@ int all_chunks_acknowledged(int *acked_chunks, int total_chunks)
 }
 int receive_message(int sock, struct sockaddr_in *sender_addr)
 {
+    
     char *chunks[MAX_CHUNKS] = {0};
     int chunks_received = 0;
 

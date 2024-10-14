@@ -42,6 +42,7 @@ int wait_for_receiver(int sock, struct sockaddr_in *receiver_addr)
 
 int send_message(int sock, struct sockaddr_in *receiver_addr, const char *message)
 {
+    
     int msg_len = strlen(message);
     printf("Length of the message typed is %d\n", msg_len);
     int total_chunks = (msg_len + CHUNK_SIZE - 1) / CHUNK_SIZE;
@@ -59,16 +60,17 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
     }
 
     // Step 1: Send all chunks without waiting for ACKs
-   for (size_t seq = 0; seq < total_chunks; seq++) {
+    for (size_t seq = 0; seq < total_chunks; seq++)
+    {
         // Determine the size of the current chunk
         size_t offset = seq * CHUNK_SIZE;
         size_t chunk_size = (offset + CHUNK_SIZE <= msg_len) ? CHUNK_SIZE : (msg_len - offset);
 
         packet.seq = htonl(seq); // Set sequence number in network byte order
-        
+
         // Copy chunk data into packet
         memcpy(packet.data, message + offset, chunk_size);
-        
+
         // Ensure the remaining data in the packet is zeroed out to prevent garbage values
         memset(packet.data + chunk_size, 0, CHUNK_SIZE - chunk_size); // Zero-fill the remaining part
 
@@ -77,7 +79,6 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
         printf("Sent chunk %zu (size: %zu) value: %.*s\n", seq, chunk_size, CHUNK_SIZE, packet.data); // Log the size of each chunk sent
     }
     // Step 2: Process acknowledgments and handle retransmissions if necessary
-
 
     while (1)
     {
@@ -140,30 +141,6 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
     return 0;
 }
 
-// Function to receive a message from the client (similar to receive_message function from client code)
-// int receive_message(int sock, struct sockaddr_in *client_addr)
-// {
-//     char buffer[MAX_MESSAGE_SIZE];
-//     socklen_t addr_len = sizeof(*client_addr);
-//     while (1) // Infinite loop to continuously receive messages
-//     {
-//         int received = recvfrom(sock, buffer, MAX_MESSAGE_SIZE, 0, (struct sockaddr *)client_addr, &addr_len);
-
-//         if (received > 0)
-//         {
-//             buffer[received] = '\0'; // Null-terminate the string
-//             printf("Server received message from client: %s\n", buffer);
-//             break; // Exit the loop once a valid message is received
-//         }
-//         else
-//         {
-//             // printf("Error receiving message from client. Retrying...\n");
-//             continue; // Keep trying until a message is received
-//         }
-//     }
-
-//     return 0;
-// }
 #define MAX_CHUNKS 1000 // can vary this variable according to my needs
 int all_chunks_acknowledged(int *acked_chunks, int total_chunks)
 {
