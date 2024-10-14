@@ -49,3 +49,41 @@ riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
 
 need to handle the case when server is down , but clients are working
+
+
+
+In your MLFQ scheduler implementation, p->ticks and p->lastscheduledticks serve two different but complementary purposes:
+
+1. p->ticks
+Purpose: Tracks how long the current process has been running at its current priority level.
+
+Role in the Scheduler:
+
+It ensures that a process does not exceed its allowed time slice for its current priority level.
+When p->ticks reaches a certain threshold (depending on the priority), the process is moved to a lower priority queue.
+Behavior:
+
+Each process has a certain time slice based on its priority:
+Priority 0: 1 tick
+Priority 1: 4 ticks
+Priority 2: 8 ticks
+Priority 3: 16 ticks
+When a process uses up its time slice (p->ticks reaches the threshold), it is demoted to a lower priority and its p->ticks is reset to zero.
+Example:
+
+A process in priority 1 (time slice of 4 ticks) runs and increments p->ticks on each clock interrupt. When p->ticks == 4, the process is demoted to priority 2, and p->ticks is reset to 0 for the new priority level.
+2. p->lastscheduledticks
+Purpose: Tracks how long it has been since the last time the process was scheduled to run.
+
+Role in the Scheduler:
+
+Helps the scheduler decide which process to schedule next among processes of the same priority.
+It is used to prevent starvation and ensure fairness among processes by giving preference to processes that haven’t been scheduled in a while.
+Behavior:
+
+lastscheduledticks is incremented for each runnable process that is waiting for CPU time but is not currently running.
+For running processes, lastscheduledticks is reset to 0 when the process starts running.
+When the scheduler is deciding between processes of the same priority, it will pick the one that hasn’t been scheduled for the longest time (i.e., the process with the highest lastscheduledticks).
+Example:
+
+If there are two processes with the same priority and both are runnable, the process with the higher lastscheduledticks (i.e., the one that hasn't run for longer) will be given preference.

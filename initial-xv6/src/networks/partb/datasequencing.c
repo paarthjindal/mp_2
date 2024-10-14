@@ -77,11 +77,7 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
         printf("Sent chunk %zu (size: %zu) value: %.*s\n", seq, chunk_size, CHUNK_SIZE, packet.data); // Log the size of each chunk sent
     }
     // Step 2: Process acknowledgments and handle retransmissions if necessary
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 0.1 second timeout
-    // The setsockopt() function is used to set a timeout oon the socket for receiving the ACK
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
 
     while (1)
     {

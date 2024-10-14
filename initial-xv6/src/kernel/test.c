@@ -97,64 +97,53 @@ void lastscheduled(void)
     }
   }
 }
-
+void boost_all_processes(void)
+{
+  struct proc *p;
+  for (int i = 0; i < NPROC; i++)
+  {
+    p = &proc[i];
+    if (p->state != UNUSED)
+    {
+      p->priority = 0;
+      p->lastscheduledticks = 0;
+    }
+  }
+}
+//
+// handle an interrupt, exception, or system call from user space.
+// called from trampoline.S
+//
+// trap.c
 void usertrap(void)
 {
+  // printf("hello i am reaschin\n");
   int which_dev = 0;
-
   if ((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
-
   // send interrupts and exceptions to kerneltrap(),
   // since we're now in the kernel.
   w_stvec((uint64)kernelvec);
-
   struct proc *p = myproc();
-
   // save user program counter.
   p->trapframe->epc = r_sepc();
-
   if (r_scause() == 8)
   {
     // system call
-
     if (killed(p))
       exit(-1);
-    myproc()->lastscheduledticks = 0;
-
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
-
     // an interrupt will change sepc, scause, and sstatus,
     // so enable only now that we're done with those registers.
     intr_on();
-
     syscall();
   }
   else if ((which_dev = devintr()) != 0)
   {
-    myproc()->lastscheduledticks = 0;
-    // ok
-  }
-  else
-  {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    setkilled(p);
-  }
-
-  if (killed(p))
-  {
-    exit(-1);
-  }
-  // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
-  {
-
-    if (SCHEDULER == 2)
-    {
-      // Timer interrupt
+    if (which_dev == 2 && SCHEDULER == 2)
+    { // Timer interrupt
       // boost_ticks++;
       // if (p && p->state == RUNNING)
       // {
@@ -218,54 +207,71 @@ void usertrap(void)
       // i am shifting mine implementation to without queues commenting it
       lastscheduled();
       p->ticks += 1;
-      int flag = 0;
-      // over here mine start_time will always remain equal to zero cause its called at the start of the function not schedulertest
-      // if ((ticks - start_time) % BOOST_INTERVAL == 0)
-      // {
-      //   printf("%d\n", start_time);
-
-      //   boost_all_processes();
-      // }
+      int check = 0;
+      if ((ticks - start_time) % BOOST_INTERVAL == 0)
+      {
+        boost_all_processes();
+      }
+      // Aging and priority boostin
       for (struct proc *t = proc; t < &proc[NPROC]; t++)
       {
-        if (t->lastscheduledticks >= BOOST_INTERVAL && t->priority != 0 && t->state == RUNNABLE)
+        if (t->lastscheduledticks >= 48 && t->priority != 0 && t->state == RUNNABLE)
         {
           t->lastscheduledticks = 0;
-          t->priority = 0;
+          t->priority = 0; // boosted its priority to to 0
           if (p->priority > t->priority)
           {
-            flag = 1;
+            check = 1;
             break;
           }
         }
       }
+      // below i implemented the alarm handling for mine 2 nd system command
+      if (p != 0 && p->state == RUNNING)
+      {
+        p->ticks_count++;
+        if (p->alarm_interval > 0 && p->ticks_count >= p->alarm_interval && p->alarm_on)
+        {
+          p->alarm_on = 0; // Disable alarm while handler is running
+          p->alarm_tf = kalloc();
+          if (p->alarm_tf == 0)
+            panic("Error !! usertrap: out of memory");
+          memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
+          p->trapframe->epc = (uint64)p->alarm_handler;
+          p->ticks_count = 0;
+        }
+      }
+      int flag = 0;
+
+      // Handle priority demotion based on tick counts
       if (p->priority == 0 && p->ticks == 1)
       {
         p->priority = 1;
         p->ticks = 0;
         for (struct proc *t = proc; t < &proc[NPROC]; t++)
         {
-          if (t->lastscheduledticks >= BOOST_INTERVAL && t->priority != 0 && t->state == RUNNABLE)
+          if (t->lastscheduledticks >= 48 && t->priority != 0 && t->state == RUNNABLE)
           {
             t->lastscheduledticks = 0;
             t->priority = 0;
           }
         }
-        yield();
+        flag = 1;
+        // yield();
       }
       else if (p->priority == 1 && p->ticks == 4)
       {
         p->priority = 2;
         p->ticks = 0;
+        flag = 1;
         for (struct proc *t = proc; t < &proc[NPROC]; t++)
         {
-          if (t->lastscheduledticks >= BOOST_INTERVAL && t->priority != 0 && t->state == RUNNABLE)
+          if (t->lastscheduledticks >= 48 && t->priority != 0 && t->state == RUNNABLE)
           {
             t->lastscheduledticks = 0;
             t->priority = 0;
           }
         }
-        yield();
       }
       else if (p->priority == 2 && p->ticks == 8)
       {
@@ -273,34 +279,52 @@ void usertrap(void)
         p->ticks = 0;
         for (struct proc *t = proc; t < &proc[NPROC]; t++)
         {
-          if (t->lastscheduledticks >= BOOST_INTERVAL && t->priority != 0 && t->state == RUNNABLE)
+          if (t->lastscheduledticks >= 48 && t->priority != 0 && t->state == RUNNABLE)
           {
             t->lastscheduledticks = 0;
             t->priority = 0;
           }
         }
-        yield();
+        flag = 1;
       }
       else if (p->priority == 3 && p->ticks == 16)
       {
         p->ticks = 0;
+        flag = 1;
         for (struct proc *t = proc; t < &proc[NPROC]; t++)
         {
-          if (t->lastscheduledticks >= BOOST_INTERVAL && t->priority != 0 && t->state == RUNNABLE)
+          if (t->lastscheduledticks >= 48 && t->priority != 0 && t->state == RUNNABLE)
           {
             t->lastscheduledticks = 0;
             t->priority = 0;
           }
         }
         // printf("RUNNER:%d\n",p->pid);
-        yield();
       }
-      else if (flag == 1)
+      else if(check==1)
       {
         yield();
       }
+      if (flag == 1)
+      {
+        yield();
+      }
+      // Preempt current process if:
+      // 1. Higher priority process exists
+      // 2. A process with the same priority but was scheduled earlier (based on lastscheduledticks) is runnable
+      // if (flag == 0)
+      // {
+      //   for (struct proc *t = proc; t < &proc[NPROC]; t++)
+      //   {
+      //     if (t->priority == p->priority && t->lastscheduledticks < p->lastscheduledticks && t->state == RUNNABLE)
+      //     {
+      //       flag = 1; // Another process of the same priority has been waiting longer
+      //       break;
+      //     }
+      //   }
+      // }
     }
-    else
+    else if (which_dev == 2 && SCHEDULER != 2)
     {
       if (p != 0 && p->state == RUNNING)
       {
@@ -316,30 +340,30 @@ void usertrap(void)
           p->ticks_count = 0;
         }
       }
-      yield();
     }
-    if (p != 0 && p->state == RUNNING)
-    {
-      p->ticks_count++;
-      if (p->alarm_interval > 0 && p->ticks_count >= p->alarm_interval && p->alarm_on)
-      {
-        p->alarm_on = 0; // Disable alarm while handler is running
-        p->alarm_tf = kalloc();
-        if (p->alarm_tf == 0)
-          panic("Error !! usertrap: out of memory");
-        memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
-        p->trapframe->epc = (uint64)p->alarm_handler;
-        p->ticks_count = 0;
-      }
-    }
-  }
-  // if(which_dev == 2){
 
-  // // yield();
-  // }
+    // ok
+  }
+  else
+  {
+    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    setkilled(p);
+  }
+  if (which_dev == 2)
+  {
+    yield();
+  }
+  // give up the CPU if this is a timer interrupt.
+
+  if (killed(p))
+  {
+    exit(-1);
+  }
 
   usertrapret();
 }
+
 //
 // return to user space
 //

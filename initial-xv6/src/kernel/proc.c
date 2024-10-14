@@ -115,12 +115,13 @@ void proc_mapstacks(pagetable_t kpgtbl)
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
 }
-
+int start_time;
 // initialize the proc table.
 void procinit(void)
 {
   struct proc *p;
-
+  start_time = ticks;
+  // printf("start time is %d",start_time);
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   for (p = proc; p < &proc[NPROC]; p++)
@@ -863,25 +864,25 @@ int get_ticks_for_priority(int priority)
   }
 }
 
-// Boost all processes to priority 0
-// void boost_all_processes(void)
-// {
-//   struct proc *p;
-//   for (int i = 0; i < NPROC; i++)
-//   {
-//     p = &proc[i];
-//     if (p->state != UNUSED)
-//     {
-//       p->priority = 0;              // Move all processes to priority 0
-//       p->remaining_ticks = TICKS_0; // Assign the time slice for priority 0
-//       enqueue(0, p);                // Enqueue into priority 0
-//     }
-//   }
-// }
+void priority_boost(void)
+{
+  // Iterate through all processes to boost their priorities
+  for (struct proc *p = proc; p < &proc[NPROC]; p++)
+  {
+    if (p->state == RUNNABLE)
+    {
+      p->priority = 0;           // Boost process to the highest priority
+      p->ticks = 0;              // Reset process ticks
+      p->lastscheduledticks = 0; // Reset last scheduled ticks
+    }
+  }
+}
+int last_boost_ticks = 0; // Global or static variable to track the last boost time
 
 void mlfq_scheduler(void)
 {
   // mlfq=1;
+  printf("hi");
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
@@ -889,9 +890,18 @@ void mlfq_scheduler(void)
   {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    // printf("hello");
+    if (ticks - last_boost_ticks >= BOOST_INTERVAL)
+    {
+      printf("Boosting priorities at ticks = %d\n", ticks);
+      priority_boost();
+      last_boost_ticks = ticks; // Update the last boost time
+    }
+   
     for (p = proc; p < &proc[NPROC]; p++)
     {
       acquire(&p->lock);
+
       if (p->state == RUNNABLE)
       {
         // Switch to chosen process.  It is the process's job
@@ -1358,7 +1368,7 @@ int waitx(uint64 addr, uint *wtime, uint *rtime)
           // Found one.
           pid = np->pid;
           *rtime = np->rtime;
-          printf("%d \n",*rtime);
+          printf("%d \n", *rtime);
           *wtime = np->etime - np->ctime - np->rtime;
           if (addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
                                    sizeof(np->xstate)) < 0)
@@ -1395,7 +1405,7 @@ void update_time()
   {
     if (p->pid >= 9 && p->pid <= 14)
     {
-      printf("%d %d %d\n", p->pid, p->priority, ticks);
+      printf("p :%d p_ticks:%d p_priority %d ticks: %d p_lst%d\n", p->pid, p->ticks, p->priority, ticks, p->lastscheduledticks);
     }
     acquire(&p->lock);
     if (p->state == RUNNING)

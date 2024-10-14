@@ -163,12 +163,11 @@ typedef struct queue
 #define TICKS_2 8  // 8 timer ticks for priority 2
 #define TICKS_3 16 // 16 timer ticks for priority 3
 #define BOOST_INTERVAL 48
-void dequeue(int priority, struct proc *p);
-void enqueue(int priority, struct proc *p);
-void init_queues();
-void boost_all_processes(void);
+// void dequeue(int priority, struct proc *p);
+// void enqueue(int priority, struct proc *p);
+// void init_queues();
 int get_ticks_for_priority(int priority);
-
+void priority_boost(void);
 #ifndef SCHEDULER
 #define SCHEDULER RR
 #endif
@@ -176,3 +175,4 @@ int get_ticks_for_priority(int priority);
 extern struct proc proc[NPROC];
 // extern int boost_ticks;
 extern struct queue mlfq_queues[total_queue]; // this is mine array of size 4
+extern int start_time;

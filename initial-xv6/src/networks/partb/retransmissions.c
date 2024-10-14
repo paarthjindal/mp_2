@@ -180,11 +180,8 @@ int send_message(int sock, struct sockaddr_in *receiver_addr, const char *messag
         sendto(sock, &packet, sizeof(uint32_t) + CHUNK_SIZE, 0, (struct sockaddr *)receiver_addr, sizeof(*receiver_addr));
         printf("Sent chunk %zu (size: %zu) value: %.*s\n", seq, chunk_size, CHUNK_SIZE, packet.data); // Log the size of each chunk sent
     }
-    // Step 2: Process acknowledgments and handle retransmissions if necessary
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 0.1 second timeout
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+   
+
 
     while (1)
     {
